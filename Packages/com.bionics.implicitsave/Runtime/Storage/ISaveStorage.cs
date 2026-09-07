@@ -44,5 +44,43 @@ namespace ImplicitSave.Storage
 
         /// <summary>Lists the save ids stored for a profile.</summary>
         IReadOnlyList<string> ListSaveIds(int profileId);
+
+        // ---- Profiles ----
+        //
+        // The profile index sits beside the profile folders rather than inside one, so it needs its
+        // own three methods. Where things physically live is storage's business; what a profile
+        // means is ProfileService's.
+
+        /// <summary>Whether a profile index has been written yet.</summary>
+        bool IndexExists();
+
+        /// <summary>Reads the profile index.</summary>
+        /// <exception cref="SaveStorageException">The index is missing or unreadable.</exception>
+        byte[] ReadIndex();
+
+        /// <summary>Writes the profile index, atomically and with a backup, like any save.</summary>
+        /// <exception cref="SaveStorageException">The write could not be completed.</exception>
+        void WriteIndex(byte[] content);
+
+        /// <summary>Moves an unreadable index aside and returns where it went.</summary>
+        /// <returns>The new location, or <c>null</c> if there was nothing to move.</returns>
+        string QuarantineIndex();
+
+        /// <summary>
+        /// Lists the profiles that physically exist, whatever the index claims. This is what makes
+        /// a lost index recoverable instead of fatal.
+        /// </summary>
+        IReadOnlyList<int> ListProfileIds();
+
+        /// <summary>Whether a profile folder exists.</summary>
+        bool ProfileExists(int profileId);
+
+        /// <summary>Deletes a profile and everything in it.</summary>
+        void DeleteProfile(int profileId);
+
+        /// <summary>
+        /// Copies every save of one profile over another, replacing what was there.
+        /// </summary>
+        void CopyProfile(int sourceProfileId, int destinationProfileId);
     }
 }

@@ -17,6 +17,8 @@ namespace ImplicitSave.Storage
         private readonly Dictionary<string, byte[]> _backups = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         private readonly Dictionary<string, byte[]> _quarantined = new Dictionary<string, byte[]>(StringComparer.Ordinal);
 
+        private byte[] _index;
+
         /// <summary>
         /// How many writes have been performed. The dirty tracker's whole point is keeping this
         /// number from growing when nothing changed, which is what the tests assert against.
@@ -119,12 +121,120 @@ namespace ImplicitSave.Storage
             return ids;
         }
 
+        /// <inheritdoc />
+        public bool IndexExists()
+        {
+            return _index != null;
+        }
+
+        /// <inheritdoc />
+        public byte[] ReadIndex()
+        {
+            if (_index == null)
+            {
+                throw new SaveStorageException("No profile index in memory storage.", null);
+            }
+
+            return Copy(_index);
+        }
+
+        /// <inheritdoc />
+        public void WriteIndex(byte[] content)
+        {
+            if (content == null)
+            {
+                throw new ArgumentNullException(nameof(content));
+            }
+
+            _index = Copy(content);
+            WriteCount++;
+        }
+
+        /// <inheritdoc />
+        public string QuarantineIndex()
+        {
+            if (_index == null)
+            {
+                return null;
+            }
+
+            const string target = "profiles.corrupt";
+            _quarantined[target] = _index;
+            _index = null;
+            return target;
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyList<int> ListProfileIds()
+        {
+            var ids = new List<int>();
+
+            foreach (var key in _entries.Keys)
+            {
+                var separator = key.IndexOf('/');
+                if (separator > 0 && int.TryParse(key.Substring(0, separator), out var id) && !ids.Contains(id))
+                {
+                    ids.Add(id);
+                }
+            }
+
+            ids.Sort();
+            return ids;
+        }
+
+        /// <inheritdoc />
+        public bool ProfileExists(int profileId)
+        {
+            var prefix = profileId + "/";
+
+            foreach (var key in _entries.Keys)
+            {
+                if (key.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <inheritdoc />
+        public void DeleteProfile(int profileId)
+        {
+            foreach (var saveId in ListSaveIds(profileId))
+            {
+                Delete(profileId, saveId);
+            }
+        }
+
+        /// <inheritdoc />
+        public void CopyProfile(int sourceProfileId, int destinationProfileId)
+        {
+            if (sourceProfileId == destinationProfileId)
+            {
+                return;
+            }
+
+            if (!ProfileExists(sourceProfileId))
+            {
+                throw new SaveStorageException($"Profile {sourceProfileId} has nothing to copy.", null);
+            }
+
+            DeleteProfile(destinationProfileId);
+
+            foreach (var saveId in ListSaveIds(sourceProfileId))
+            {
+                _entries[GetKey(destinationProfileId, saveId)] = Copy(_entries[GetKey(sourceProfileId, saveId)]);
+            }
+        }
+
         /// <summary>Empties the storage, including backups and quarantined entries.</summary>
         public void Clear()
         {
             _entries.Clear();
             _backups.Clear();
             _quarantined.Clear();
+            _index = null;
             WriteCount = 0;
         }
 

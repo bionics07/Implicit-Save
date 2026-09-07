@@ -197,5 +197,98 @@ namespace ImplicitSave.Tests
         {
             Assert.Throws<SaveException>(() => _storage.GetSavePath(0, "../../etc/passwd"));
         }
+
+        [Test]
+        public void Profiles_LiveInTheirOwnFolders()
+        {
+            _storage.Write(0, "items", Encoding.UTF8.GetBytes("zero"));
+            _storage.Write(1, "items", Encoding.UTF8.GetBytes("um"));
+            _storage.Write(2, "items", Encoding.UTF8.GetBytes("dois"));
+
+            Assert.That(_storage.ListProfileIds(), Is.EqualTo(new[] { 0, 1, 2 }));
+            Assert.That(_storage.Read(1, "items"), Is.EqualTo(Encoding.UTF8.GetBytes("um")));
+        }
+
+        [Test]
+        public void ListProfileIds_IgnoresFoldersThatAreNotProfiles()
+        {
+            _storage.Write(0, "items", Encoding.UTF8.GetBytes("x"));
+            Directory.CreateDirectory(Path.Combine(_basePath, "saves", "backup-antigo"));
+
+            Assert.That(_storage.ListProfileIds(), Is.EqualTo(new[] { 0 }),
+                "A profile folder is named by its id. Anything else is not ours to interpret.");
+        }
+
+        [Test]
+        public void DeleteProfile_RemovesTheWholeFolder()
+        {
+            _storage.Write(1, "items", Encoding.UTF8.GetBytes("x"));
+            _storage.Write(1, "progress", Encoding.UTF8.GetBytes("y"));
+
+            _storage.DeleteProfile(1);
+
+            Assert.That(_storage.ProfileExists(1), Is.False);
+            Assert.That(Directory.Exists(_storage.GetProfilePath(1)), Is.False);
+        }
+
+        [Test]
+        public void CopyProfile_DuplicatesEverySaveFile()
+        {
+            _storage.Write(0, "items", Encoding.UTF8.GetBytes("itens"));
+            _storage.Write(0, "progress", Encoding.UTF8.GetBytes("progresso"));
+
+            _storage.CopyProfile(0, 1);
+
+            Assert.That(_storage.ListSaveIds(1), Is.EqualTo(new[] { "items", "progress" }));
+            Assert.That(_storage.Read(1, "progress"), Is.EqualTo(Encoding.UTF8.GetBytes("progresso")));
+        }
+
+        [Test]
+        public void CopyProfile_DoesNotCarryBackupsOrTempFiles()
+        {
+            _storage.Write(0, "items", Encoding.UTF8.GetBytes("primeiro"));
+            _storage.Write(0, "items", Encoding.UTF8.GetBytes("segundo"));
+
+            _storage.CopyProfile(0, 1);
+
+            Assert.That(_storage.TryReadBackup(1, "items", out _), Is.False,
+                "A copied slot starts clean - an old backup there would be misleading.");
+        }
+
+        [Test]
+        public void Index_RoundTripsAndSitsBesideTheProfiles()
+        {
+            var content = Encoding.UTF8.GetBytes("{\"activeProfile\":0}");
+
+            _storage.WriteIndex(content);
+
+            Assert.That(_storage.IndexExists(), Is.True);
+            Assert.That(_storage.ReadIndex(), Is.EqualTo(content));
+            Assert.That(_storage.IndexPath, Is.EqualTo(Path.Combine(_basePath, "saves", "profiles.json")));
+        }
+
+        [Test]
+        public void QuarantineIndex_KeepsTheFile()
+        {
+            _storage.WriteIndex(Encoding.UTF8.GetBytes("corrompido"));
+
+            var quarantined = _storage.QuarantineIndex();
+
+            Assert.That(File.Exists(quarantined), Is.True);
+            Assert.That(_storage.IndexExists(), Is.False);
+        }
+
+        [Test]
+        public void WriteIndex_IsAtomicToo()
+        {
+            _storage.WriteIndex(Encoding.UTF8.GetBytes("bom"));
+            _storage.AfterTempWritten = _ => throw new IOException("simulated power loss");
+
+            Assert.Throws<SaveStorageException>(() => _storage.WriteIndex(Encoding.UTF8.GetBytes("condenado")));
+            _storage.AfterTempWritten = null;
+
+            Assert.That(_storage.ReadIndex(), Is.EqualTo(Encoding.UTF8.GetBytes("bom")),
+                "Losing the index is survivable, but a half-written one should never exist.");
+        }
     }
 }

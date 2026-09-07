@@ -29,6 +29,12 @@ namespace ImplicitSave
         /// </summary>
         public event Action<SaveException> Failed;
 
+        /// <summary>Raised after a save is written, with its type and profile.</summary>
+        public event Action<Type, int> Saved;
+
+        /// <summary>Raised after a save is read from storage, with its type and profile.</summary>
+        public event Action<Type, int> Loaded;
+
         /// <summary>Where bytes are read from and written to.</summary>
         public ISaveStorage Storage => _storage;
 
@@ -147,6 +153,7 @@ namespace ImplicitSave
                 _storage.Write(profileId, saveId, bytes);
                 instance.IsDirty = false;
                 ImplicitSaveLog.Info($"Wrote '{saveId}' of profile {profileId} ({bytes.Length} bytes).");
+                Saved?.Invoke(type, profileId);
             }
             catch (SaveException e)
             {
@@ -169,6 +176,7 @@ namespace ImplicitSave
                 var instance = _serializer.Deserialize(_storage.Read(profileId, saveId), type);
                 instance.OnAfterLoad();
                 ImplicitSaveLog.Info($"Loaded '{saveId}' of profile {profileId}.");
+                Loaded?.Invoke(type, profileId);
                 return instance;
             }
             catch (SaveException e)

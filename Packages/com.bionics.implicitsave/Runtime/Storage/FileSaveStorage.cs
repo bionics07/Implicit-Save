@@ -103,13 +103,35 @@ namespace ImplicitSave.Storage
             }
 
             var path = GetSavePath(profileId, saveId);
+
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path) ?? _rootPath);
+                WriteAtomically(path, content);
+            }
+            catch (Exception e)
+            {
+                throw new SaveStorageException($"Could not write '{path}'.", e);
+            }
+        }
+
+        /// <inheritdoc />
+        public string Quarantine(int profileId, string saveId)
+        {
+            return MoveAside(GetSavePath(profileId, saveId));
+        }
+
+        /// <summary>
+        /// Writes a file so that a process dying part way through leaves either the old content or
+        /// the new one, never half of either.
+        /// </summary>
+        private void WriteAtomically(string path, byte[] content)
+        {
             var tempPath = path + TempExtension;
             var backupPath = path + BackupExtension;
 
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(path) ?? _rootPath);
-
                 // Write the whole payload somewhere harmless first. Until the swap below happens,
                 // the file a player would load is still the previous, intact one.
                 using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
@@ -122,17 +144,19 @@ namespace ImplicitSave.Storage
 
                 Swap(tempPath, path, backupPath);
             }
-            catch (Exception e)
+            catch
             {
                 DeleteQuietly(tempPath);
-                throw new SaveStorageException($"Could not write '{path}'.", e);
+                throw;
             }
         }
 
-        /// <inheritdoc />
-        public string Quarantine(int profileId, string saveId)
+        /// <summary>
+        /// Renames an unreadable file out of the way, timestamped. Never deletes it: it may be the
+        /// player's only copy, and a support ticket can still ask for it.
+        /// </summary>
+        private static string MoveAside(string path)
         {
-            var path = GetSavePath(profileId, saveId);
             if (!File.Exists(path))
             {
                 return null;
@@ -153,7 +177,7 @@ namespace ImplicitSave.Storage
             }
             catch (Exception e)
             {
-                // Quarantine failing must not mask the corruption it was reacting to.
+                // Failing to move it aside must not mask the corruption that prompted this.
                 ImplicitSaveLog.Warning($"Could not move the unreadable '{path}' aside: {e.Message}");
                 return null;
             }
@@ -188,6 +212,145 @@ namespace ImplicitSave.Storage
             ids.Sort(StringComparer.Ordinal);
             return ids;
         }
+
+        /// <inheritdoc />
+        public bool IndexExists()
+        {
+            return File.Exists(IndexPath);
+        }
+
+        /// <inheritdoc />
+        public byte[] ReadIndex()
+        {
+            try
+            {
+                return File.ReadAllBytes(IndexPath);
+            }
+            catch (Exception e)
+            {
+                throw new SaveStorageException($"Could not read '{IndexPath}'.", e);
+            }
+        }
+
+        /// <inheritdoc />
+        public void WriteIndex(byte[] content)
+        {
+            if (content == null)
+            {
+                throw new ArgumentNullException(nameof(content));
+            }
+
+            var path = IndexPath;
+
+            try
+            {
+                Directory.CreateDirectory(_rootPath);
+                WriteAtomically(path, content);
+            }
+            catch (Exception e)
+            {
+                throw new SaveStorageException($"Could not write '{path}'.", e);
+            }
+        }
+
+        /// <inheritdoc />
+        public string QuarantineIndex()
+        {
+            return MoveAside(IndexPath);
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyList<int> ListProfileIds()
+        {
+            if (!Directory.Exists(_rootPath))
+            {
+                return Array.Empty<int>();
+            }
+
+            var ids = new List<int>();
+
+            foreach (var directory in Directory.GetDirectories(_rootPath))
+            {
+                var name = Path.GetFileName(directory);
+
+                // A profile folder is named by its id and nothing else. Anything else in here is
+                // not ours to interpret.
+                if (int.TryParse(name, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
+                {
+                    ids.Add(id);
+                }
+            }
+
+            ids.Sort();
+            return ids;
+        }
+
+        /// <inheritdoc />
+        public bool ProfileExists(int profileId)
+        {
+            return Directory.Exists(GetProfilePath(profileId));
+        }
+
+        /// <inheritdoc />
+        public void DeleteProfile(int profileId)
+        {
+            var path = GetProfilePath(profileId);
+            if (!Directory.Exists(path))
+            {
+                return;
+            }
+
+            try
+            {
+                Directory.Delete(path, recursive: true);
+            }
+            catch (Exception e)
+            {
+                throw new SaveStorageException($"Could not delete profile folder '{path}'.", e);
+            }
+        }
+
+        /// <inheritdoc />
+        public void CopyProfile(int sourceProfileId, int destinationProfileId)
+        {
+            if (sourceProfileId == destinationProfileId)
+            {
+                return;
+            }
+
+            var source = GetProfilePath(sourceProfileId);
+            if (!Directory.Exists(source))
+            {
+                throw new SaveStorageException($"Profile {sourceProfileId} has nothing to copy.", null);
+            }
+
+            var destination = GetProfilePath(destinationProfileId);
+
+            try
+            {
+                // Replace rather than merge: a half-old, half-new profile is a save state that
+                // never existed in the game.
+                if (Directory.Exists(destination))
+                {
+                    Directory.Delete(destination, recursive: true);
+                }
+
+                Directory.CreateDirectory(destination);
+
+                foreach (var file in Directory.GetFiles(source, "*" + SaveExtension))
+                {
+                    File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), overwrite: true);
+                }
+            }
+            catch (Exception e)
+            {
+                throw new SaveStorageException(
+                    $"Could not copy profile {sourceProfileId} to {destinationProfileId}.", e);
+            }
+        }
+
+        /// <summary>Absolute path of the profile index.</summary>
+        public string IndexPath => Path.Combine(_rootPath, "profiles" + SaveExtension);
 
         /// <summary>Absolute path of a profile's folder.</summary>
         public string GetProfilePath(int profileId)
