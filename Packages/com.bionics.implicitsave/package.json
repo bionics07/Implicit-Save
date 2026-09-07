@@ -1,0 +1,25 @@
+{
+  "name": "com.bionics.implicitsave",
+  "version": "0.1.0",
+  "displayName": "ImplicitSave",
+  "description": "Zero-config save system for Unity. Declaring a class is enough - no central ScriptableObject, no manual registration, no references to maintain.",
+  "unity": "2021.3",
+  "author": {
+    "name": "Luiz Felipe",
+    "url": "https://github.com/bionics07"
+  },
+  "documentationUrl": "https://github.com/bionics07/Implicit-Save",
+  "changelogUrl": "https://github.com/bionics07/Implicit-Save/blob/main/CHANGELOG.md",
+  "licensesUrl": "https://github.com/bionics07/Implicit-Save/blob/main/LICENSE",
+  "keywords": [
+    "save",
+    "savegame",
+    "save system",
+    "serialization",
+    "persistence",
+    "json"
+  ],
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.2"
+  }
+}

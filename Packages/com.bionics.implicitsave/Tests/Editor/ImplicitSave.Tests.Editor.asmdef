@@ -1,0 +1,26 @@
+{
+    "name": "ImplicitSave.Tests.Editor",
+    "rootNamespace": "ImplicitSave.Tests.Editor",
+    "references": [
+        "ImplicitSave.Runtime",
+        "ImplicitSave.Editor",
+        "Unity.Nuget.Newtonsoft-Json",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
