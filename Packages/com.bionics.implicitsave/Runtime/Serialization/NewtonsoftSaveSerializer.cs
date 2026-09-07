@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Serialization;
 using UnityEngine;
 
 namespace ImplicitSave.Serialization
@@ -24,7 +25,8 @@ namespace ImplicitSave.Serialization
     {
         private static readonly UTF8Encoding Utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
-        private readonly JsonSerializer _serializer;
+        private readonly JsonSerializer _payloadSerializer;
+        private readonly JsonSerializer _envelopeSerializer;
         private readonly Formatting _formatting;
 
         /// <param name="prettyPrint">
@@ -35,16 +37,40 @@ namespace ImplicitSave.Serialization
         {
             _formatting = prettyPrint ? Formatting.Indented : Formatting.None;
 
-            _serializer = JsonSerializer.Create(new JsonSerializerSettings
+            // The payload follows Unity's rules exactly, so the editor window and the file can never
+            // disagree about what a save contains.
+            _payloadSerializer = JsonSerializer.Create(CreateSettings(UnityContractResolver.Instance));
+
+            // The envelope is the package's own bookkeeping, not user save data. It is written with
+            // Newtonsoft's normal rules because its members are properties, which the Unity rules
+            // deliberately exclude.
+            _envelopeSerializer = JsonSerializer.Create(CreateSettings(resolver: null));
+        }
+
+        private static JsonSerializerSettings CreateSettings(IContractResolver resolver)
+        {
+            var settings = new JsonSerializerSettings
             {
                 // Never TypeNameHandling: it writes assembly-qualified names into the file, which
                 // turns any refactor into a broken save and is a deserialization risk besides.
                 TypeNameHandling = TypeNameHandling.None,
                 MissingMemberHandling = MissingMemberHandling.Ignore,
+
+                // Without this, a string the player saved that merely looks like a date comes back
+                // as a reformatted DateTime. Silent data loss, and impossible to explain later.
                 DateParseHandling = DateParseHandling.None,
                 Culture = CultureInfo.InvariantCulture,
                 ReferenceLoopHandling = ReferenceLoopHandling.Error
-            });
+            };
+
+            settings.Converters.Add(new SerializableDictionaryConverter());
+
+            if (resolver != null)
+            {
+                settings.ContractResolver = resolver;
+            }
+
+            return settings;
         }
 
         /// <inheritdoc />
@@ -63,7 +89,7 @@ namespace ImplicitSave.Serialization
                     SchemaVersion = data.SchemaVersion,
                     SavedAt = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture),
                     AppVersion = Application.version,
-                    Data = JObject.FromObject(data, _serializer)
+                    Data = JObject.FromObject(data, _payloadSerializer)
                 };
 
                 var json = SerializeToString(envelope);
@@ -101,7 +127,7 @@ namespace ImplicitSave.Serialization
                         $"into '{type.Name}'.", null);
                 }
 
-                var instance = envelope.Data.ToObject(type, _serializer);
+                var instance = envelope.Data.ToObject(type, _payloadSerializer);
                 if (instance is SaveData saveData)
                 {
                     return saveData;
@@ -123,7 +149,14 @@ namespace ImplicitSave.Serialization
         internal SaveEnvelope ReadEnvelope(byte[] content)
         {
             var json = Utf8.GetString(content);
-            var envelope = JsonConvert.DeserializeObject<SaveEnvelope>(json);
+
+            SaveEnvelope envelope;
+            using (var reader = new JsonTextReader(new System.IO.StringReader(json)))
+            {
+                // The project's global JsonConvert defaults must not reach in here - a user who set
+                // their own would silently change how every save file is read.
+                envelope = _envelopeSerializer.Deserialize<SaveEnvelope>(reader);
+            }
 
             if (envelope == null || envelope.SaveId == null)
             {
@@ -140,7 +173,7 @@ namespace ImplicitSave.Serialization
             using (var writer = new StringWriterInvariant(builder))
             using (var jsonWriter = new JsonTextWriter(writer) { Formatting = _formatting })
             {
-                _serializer.Serialize(jsonWriter, envelope);
+                _envelopeSerializer.Serialize(jsonWriter, envelope);
             }
 
             return builder.ToString();

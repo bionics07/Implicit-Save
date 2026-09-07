@@ -4,6 +4,7 @@
     "references": [
         "ImplicitSave.Runtime",
         "ImplicitSave.Editor",
+        "ImplicitSave.Tests.Runtime",
         "Unity.Nuget.Newtonsoft-Json",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
@@ -15,7 +16,8 @@
     "allowUnsafeCode": false,
     "overrideReferences": true,
     "precompiledReferences": [
-        "nunit.framework.dll"
+        "nunit.framework.dll",
+        "Newtonsoft.Json.dll"
     ],
     "autoReferenced": false,
     "defineConstraints": [
