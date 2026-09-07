@@ -22,6 +22,8 @@ namespace ImplicitSave
         private readonly ISaveSerializer _serializer;
         private readonly ISaveStorage _storage;
         private readonly Dictionary<SaveKey, SaveData> _instances = new Dictionary<SaveKey, SaveData>();
+        private readonly DirtyTracker _dirtyTracker = new DirtyTracker();
+        private readonly SaveWriteQueue _writeQueue;
 
         /// <summary>
         /// Raised when a save could not be loaded or written. A game listens to this to tell the
@@ -44,7 +46,15 @@ namespace ImplicitSave
         {
             _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
             _storage = storage ?? throw new ArgumentNullException(nameof(storage));
+            _writeQueue = new SaveWriteQueue(storage);
+            _writeQueue.Failed += e => Failed?.Invoke(e);
         }
+
+        /// <summary>Tracks what was last written, so an unchanged save is not rewritten.</summary>
+        public DirtyTracker DirtyTracker => _dirtyTracker;
+
+        /// <summary>The queue background writes go through.</summary>
+        public SaveWriteQueue WriteQueue => _writeQueue;
 
         /// <summary>
         /// Returns the live instance for this profile, loading it on first use. Never returns null:
@@ -91,27 +101,49 @@ namespace ImplicitSave
         }
 
         /// <summary>Writes one loaded save to storage. Does nothing if it was never loaded.</summary>
-        public void Save(Type type, int profileId)
+        /// <param name="type">The save type.</param>
+        /// <param name="profileId">Profile to write.</param>
+        /// <param name="force">Write even when nothing changed since the last write.</param>
+        /// <param name="async">Hand the write to the background queue instead of blocking.</param>
+        public void Save(Type type, int profileId, bool force = true, bool async = false)
         {
             if (!_instances.TryGetValue(new SaveKey(type, profileId), out var instance))
             {
                 return;
             }
 
-            Write(instance, type, profileId);
+            Write(instance, type, profileId, force, async);
         }
 
         /// <summary>Writes every loaded save of a profile.</summary>
-        public void SaveAll(int profileId)
+        /// <param name="profileId">Profile to write.</param>
+        /// <param name="force">Write even the saves that did not change.</param>
+        /// <param name="async">Hand the writes to the background queue instead of blocking.</param>
+        public void SaveAll(int profileId, bool force = true, bool async = false)
         {
             // Copied because a failing write raises Failed, and a handler may touch the repository.
             foreach (var pair in new List<KeyValuePair<SaveKey, SaveData>>(_instances))
             {
                 if (pair.Key.ProfileId == profileId)
                 {
-                    Write(pair.Value, pair.Key.Type, profileId);
+                    Write(pair.Value, pair.Key.Type, profileId, force, async);
                 }
             }
+        }
+
+        /// <summary>Writes every loaded save of every profile.</summary>
+        public void SaveEverything(bool force = true, bool async = false)
+        {
+            foreach (var pair in new List<KeyValuePair<SaveKey, SaveData>>(_instances))
+            {
+                Write(pair.Value, pair.Key.Type, pair.Key.ProfileId, force, async);
+            }
+        }
+
+        /// <summary>Blocks until every queued write has finished.</summary>
+        public bool Flush(TimeSpan timeout)
+        {
+            return _writeQueue.Drain(timeout);
         }
 
         /// <summary>
@@ -134,23 +166,47 @@ namespace ImplicitSave
             {
                 _instances.Remove(key);
             }
+
+            // The next instance loaded is a different object, so it has to be written once even if
+            // its bytes happen to match what the dropped one last wrote.
+            _dirtyTracker.ForgetProfile(profileId);
         }
 
         /// <summary>Drops every instance from memory without writing.</summary>
         public void Clear()
         {
             _instances.Clear();
+            _dirtyTracker.Clear();
         }
 
-        private void Write(SaveData instance, Type type, int profileId)
+        private void Write(SaveData instance, Type type, int profileId, bool force, bool async)
         {
             var saveId = SaveIdResolver.Resolve(type);
 
             try
             {
+                // Always on the main thread: the instance may hold Unity types and the game may be
+                // mutating it, so serializing anywhere else is a data race.
                 instance.OnBeforeSave();
                 var bytes = _serializer.Serialize(instance, saveId);
-                _storage.Write(profileId, saveId, bytes);
+
+                if (!force && !ShouldWrite(instance, type, profileId, bytes))
+                {
+                    return;
+                }
+
+                // The bytes from the change check are the bytes written - a tick serializes once,
+                // not twice.
+                if (async)
+                {
+                    _writeQueue.Enqueue(profileId, saveId, bytes);
+                }
+                else
+                {
+                    _storage.Write(profileId, saveId, bytes);
+                }
+
+                _dirtyTracker.Record(type, profileId, DirtyTracker.ComputeHash(bytes));
                 instance.IsDirty = false;
                 ImplicitSaveLog.Info($"Wrote '{saveId}' of profile {profileId} ({bytes.Length} bytes).");
                 Saved?.Invoke(type, profileId);
@@ -160,6 +216,25 @@ namespace ImplicitSave
                 ImplicitSaveLog.Error($"Failed to write '{saveId}' of profile {profileId}: {e.Message}");
                 Failed?.Invoke(e);
             }
+        }
+
+        /// <summary>Whether this save differs from what was last written.</summary>
+        private bool ShouldWrite(SaveData instance, Type type, int profileId, byte[] bytes)
+        {
+            var strategy = ImplicitSaveSettings.Instance.DirtyStrategy;
+
+            if (strategy == DirtyStrategy.ManualFlag)
+            {
+                return instance.IsDirty;
+            }
+
+            // Both: the flag is a fast path that skips hashing when the answer is already known.
+            if (strategy == DirtyStrategy.Both && instance.IsDirty)
+            {
+                return true;
+            }
+
+            return !_dirtyTracker.IsUnchanged(type, profileId, DirtyTracker.ComputeHash(bytes));
         }
 
         private SaveData Load(Type type, int profileId)

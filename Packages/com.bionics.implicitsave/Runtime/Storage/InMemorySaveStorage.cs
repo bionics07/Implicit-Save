@@ -20,10 +20,18 @@ namespace ImplicitSave.Storage
         private byte[] _index;
 
         /// <summary>
-        /// How many writes have been performed. The dirty tracker's whole point is keeping this
-        /// number from growing when nothing changed, which is what the tests assert against.
+        /// How many save writes have been performed. The dirty tracker's whole point is keeping
+        /// this number from growing when nothing changed, which is what the tests assert against.
         /// </summary>
+        /// <remarks>
+        /// Counts saves only. The profile index is written on its own schedule - when a slot is
+        /// created, renamed or made active - and mixing it in here would make the number mean
+        /// nothing.
+        /// </remarks>
         public int WriteCount { get; private set; }
+
+        /// <summary>How many times the profile index has been written.</summary>
+        public int IndexWriteCount { get; private set; }
 
         /// <summary>Entries moved aside by <see cref="Quarantine"/>, keyed by their reported path.</summary>
         public IReadOnlyDictionary<string, byte[]> Quarantined => _quarantined;
@@ -147,7 +155,7 @@ namespace ImplicitSave.Storage
             }
 
             _index = Copy(content);
-            WriteCount++;
+            IndexWriteCount++;
         }
 
         /// <inheritdoc />
@@ -236,6 +244,7 @@ namespace ImplicitSave.Storage
             _quarantined.Clear();
             _index = null;
             WriteCount = 0;
+            IndexWriteCount = 0;
         }
 
         /// <summary>

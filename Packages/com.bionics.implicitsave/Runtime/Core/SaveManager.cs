@@ -142,6 +142,39 @@ namespace ImplicitSave
             Repository.SaveAll(ActiveProfileId);
         }
 
+        /// <summary>
+        /// Writes every loaded save of every profile, whether or not it changed. Use it before
+        /// something you cannot undo - a quit button, or handing the app to another player.
+        /// </summary>
+        public static void ForceSave()
+        {
+            Repository.SaveEverything(force: true);
+        }
+
+        /// <summary>
+        /// One autosave pass: writes only what actually changed, off the main thread. This is what
+        /// the periodic tick calls.
+        /// </summary>
+        /// <remarks>
+        /// Serialization still happens here, on the main thread. Only the disk write is handed to
+        /// the background queue, because that is the part that costs milliseconds.
+        /// </remarks>
+        public static void AutoSave()
+        {
+            Repository.SaveEverything(force: false, async: true);
+        }
+
+        /// <summary>
+        /// Writes everything and blocks until it is on disk. Called by the pause, focus and quit
+        /// hooks, where there may be no later frame to finish on.
+        /// </summary>
+        /// <param name="timeout">How long to wait for the write queue before giving up.</param>
+        public static void FlushSynchronously(TimeSpan timeout)
+        {
+            Repository.SaveEverything(force: false);
+            Repository.Flush(timeout);
+        }
+
         /// <summary>Drops a profile's saves from memory, discarding anything not written.</summary>
         public static void Reload(int profileId)
         {
