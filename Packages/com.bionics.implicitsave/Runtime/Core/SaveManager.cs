@@ -127,6 +127,15 @@ namespace ImplicitSave
             Repository.Save(typeof(T), profileId);
         }
 
+        /// <summary>
+        /// Type-erased form of <see cref="Save{T}(int)"/>, for callers that only have a
+        /// <see cref="Type"/> - the editor window, and anything driven by the registry.
+        /// </summary>
+        public static void Save(Type type, int profileId)
+        {
+            Repository.Save(type, profileId);
+        }
+
         /// <summary>Writes every loaded save of the active profile.</summary>
         public static void SaveAll()
         {

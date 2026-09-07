@@ -1,0 +1,12 @@
+<!--
+  link.xml - GENERATED FILE. Do not edit.
+
+  Keeps ImplicitSave's save types, and their fields and constructors, from being
+  removed by managed code stripping. Regenerated with SaveRegistry.g.cs.
+-->
+<linker>
+  <assembly fullname="Assembly-CSharp">
+    <type fullname="OrphanSaveData" preserve="all" />
+    <type fullname="SandboxSaveData" preserve="all" />
+  </assembly>
+</linker>
