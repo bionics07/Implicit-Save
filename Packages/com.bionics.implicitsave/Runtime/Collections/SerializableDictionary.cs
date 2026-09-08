@@ -38,6 +38,17 @@ namespace ImplicitSave
         [NonSerialized] private Dictionary<TKey, TValue> _dictionary = new Dictionary<TKey, TValue>();
 
         /// <summary>
+        /// Whether the dictionary holds changes the backing lists have not seen yet.
+        /// </summary>
+        /// <remarks>
+        /// Both halves can be written to - game code goes through the dictionary, the Inspector goes
+        /// straight to the lists - and whichever is flattened last wins. Without knowing which one
+        /// moved, editing in the Inspector was undone on the next frame: a repeated key was dropped
+        /// while being typed and its row vanished before it could be corrected.
+        /// </remarks>
+        [NonSerialized] private bool _dictionaryIsAhead;
+
+        /// <summary>
         /// Whether the last load found repeated keys. The lists allow duplicates and a dictionary
         /// cannot, so the drawer uses this to point at the problem instead of hiding it.
         /// </summary>
@@ -60,13 +71,19 @@ namespace ImplicitSave
             {
                 _dictionary[pair.Key] = pair.Value;
             }
+
+            _dictionaryIsAhead = true;
         }
 
         /// <inheritdoc />
         public TValue this[TKey key]
         {
             get => _dictionary[key];
-            set => _dictionary[key] = value;
+            set
+            {
+                _dictionary[key] = value;
+                _dictionaryIsAhead = true;
+            }
         }
 
         /// <inheritdoc />
@@ -85,12 +102,14 @@ namespace ImplicitSave
         public void Add(TKey key, TValue value)
         {
             _dictionary.Add(key, value);
+            _dictionaryIsAhead = true;
         }
 
         /// <inheritdoc />
         public void Add(KeyValuePair<TKey, TValue> item)
         {
             _dictionary.Add(item.Key, item.Value);
+            _dictionaryIsAhead = true;
         }
 
         /// <inheritdoc />
@@ -108,12 +127,14 @@ namespace ImplicitSave
         /// <inheritdoc />
         public bool Remove(TKey key)
         {
+            _dictionaryIsAhead = true;
             return _dictionary.Remove(key);
         }
 
         /// <inheritdoc />
         public bool Remove(KeyValuePair<TKey, TValue> item)
         {
+            _dictionaryIsAhead = true;
             return ((ICollection<KeyValuePair<TKey, TValue>>)_dictionary).Remove(item);
         }
 
@@ -127,6 +148,7 @@ namespace ImplicitSave
         public void Clear()
         {
             _dictionary.Clear();
+            _dictionaryIsAhead = true;
         }
 
         /// <inheritdoc />
@@ -147,8 +169,18 @@ namespace ImplicitSave
         }
 
         /// <summary>Flattens the dictionary into the two lists Unity persists.</summary>
+        /// <remarks>
+        /// Only when the dictionary actually moved. Flattening unconditionally would overwrite what
+        /// the Inspector is holding on every frame, which is what made a half-typed duplicate key
+        /// disappear instead of being reported.
+        /// </remarks>
         public void OnBeforeSerialize()
         {
+            if (!_dictionaryIsAhead)
+            {
+                return;
+            }
+
             _keys.Clear();
             _values.Clear();
 
@@ -157,6 +189,8 @@ namespace ImplicitSave
                 _keys.Add(pair.Key);
                 _values.Add(pair.Value);
             }
+
+            _dictionaryIsAhead = false;
         }
 
         /// <summary>Rebuilds the dictionary from the two lists.</summary>
@@ -169,6 +203,7 @@ namespace ImplicitSave
         {
             _dictionary.Clear();
             HasDuplicateKeys = false;
+            _dictionaryIsAhead = false;
 
             var count = Math.Min(_keys.Count, _values.Count);
 
@@ -178,18 +213,16 @@ namespace ImplicitSave
 
                 if (key == null)
                 {
-                    ImplicitSaveLog.Warning(
-                        $"SerializableDictionary<{typeof(TKey).Name}, {typeof(TValue).Name}> has a null key at " +
-                        $"index {i}. The entry was dropped.");
+                    HasDuplicateKeys = true;
                     continue;
                 }
 
                 if (_dictionary.ContainsKey(key))
                 {
+                    // The lists are left exactly as they are: while someone is typing a key in the
+                    // Inspector, a repeated value is a normal intermediate state, and deleting their
+                    // row would be worse than showing it in red.
                     HasDuplicateKeys = true;
-                    ImplicitSaveLog.Warning(
-                        $"SerializableDictionary<{typeof(TKey).Name}, {typeof(TValue).Name}> has the key '{key}' " +
-                        "more than once. The first one was kept.");
                     continue;
                 }
 

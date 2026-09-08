@@ -203,6 +203,22 @@ namespace ImplicitSave
             ImplicitSaveLog.Info($"Copied profile {sourceProfileId} to {destinationProfileId}.");
         }
 
+        /// <summary>
+        /// Renames a slot. The id and its files are untouched - only what the player sees changes.
+        /// </summary>
+        public void Rename(int profileId, string displayName)
+        {
+            var profile = Find(profileId);
+
+            if (profile == null || string.IsNullOrWhiteSpace(displayName))
+            {
+                return;
+            }
+
+            profile.DisplayName = displayName;
+            WriteIndex();
+        }
+
         /// <summary>Adds to a profile's play time and writes the index.</summary>
         public void AddPlayTime(int profileId, double seconds)
         {

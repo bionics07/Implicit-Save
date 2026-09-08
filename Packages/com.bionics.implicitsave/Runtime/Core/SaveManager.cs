@@ -208,6 +208,14 @@ namespace ImplicitSave
             Repository.Reload(destination);
         }
 
+        /// <summary>
+        /// Renames a slot. Only the label changes - the id and every save file stay where they are.
+        /// </summary>
+        public static void RenameProfile(int profileId, string displayName)
+        {
+            Profiles.Rename(profileId, displayName);
+        }
+
         /// <summary>Whether a slot exists.</summary>
         public static bool ProfileExists(int profileId)
         {

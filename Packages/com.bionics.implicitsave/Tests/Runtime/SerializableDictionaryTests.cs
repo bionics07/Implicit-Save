@@ -161,6 +161,54 @@ namespace ImplicitSave.Tests
         }
 
         [Test]
+        public void InspectorEditsAreNotUndoneByTheNextSerializePass()
+        {
+            // The Inspector writes the backing lists directly. Flattening the dictionary over them
+            // on every serialize pass wiped those edits a frame later: a repeated key being typed
+            // was dropped and its row disappeared before it could be corrected.
+            var map = new SerializableDictionary<string, int>();
+            var keys = new List<string> { "a", "a" };
+            var values = new List<int> { 1, 2 };
+            SetBackingLists(map, keys, values);
+
+            map.OnAfterDeserialize();
+            map.OnBeforeSerialize();
+
+            Assert.That(keys, Has.Count.EqualTo(2), "The half-edited rows have to survive.");
+            Assert.That(map.HasDuplicateKeys, Is.True, "And be reported rather than silently fixed.");
+        }
+
+        [Test]
+        public void ChangesMadeInCodeStillReachTheBackingLists()
+        {
+            // The other half of the same rule: what game code does must still be persisted.
+            var map = new SerializableDictionary<string, int>();
+            var keys = new List<string>();
+            var values = new List<int>();
+            SetBackingLists(map, keys, values);
+            map.OnAfterDeserialize();
+
+            map["potion"] = 5;
+            map.OnBeforeSerialize();
+
+            Assert.That(keys, Is.EqualTo(new[] { "potion" }));
+            Assert.That(values, Is.EqualTo(new[] { 5 }));
+        }
+
+        [Test]
+        public void RemovingInCodeReachesTheBackingLists()
+        {
+            var map = new SerializableDictionary<string, int> { { "a", 1 }, { "b", 2 } };
+            map.OnBeforeSerialize();
+
+            map.Remove("a");
+            map.OnBeforeSerialize();
+
+            var keys = ReadBackingKeys(map);
+            Assert.That(keys, Is.EqualTo(new[] { "b" }));
+        }
+
+        [Test]
         public void KeysSurviveACultureThatFormatsNumbersDifferently()
         {
             // A save written in pt-BR has to open in en-US and back. This is the failure that only
@@ -198,6 +246,16 @@ namespace ImplicitSave.Tests
         private string ToJson(SaveData data)
         {
             return Encoding.UTF8.GetString(_serializer.Serialize(data, "inventory"));
+        }
+
+        private static List<TKey> ReadBackingKeys<TKey, TValue>(SerializableDictionary<TKey, TValue> map)
+        {
+            const System.Reflection.BindingFlags flags =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+
+            return (List<TKey>)typeof(SerializableDictionary<TKey, TValue>)
+                .GetField("_keys", flags)
+                .GetValue(map);
         }
 
         private static void SetBackingLists<TKey, TValue>(
