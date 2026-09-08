@@ -127,7 +127,30 @@ namespace ImplicitSave.Serialization
                         $"into '{type.Name}'.", null);
                 }
 
-                var instance = envelope.Data.ToObject(type, _payloadSerializer);
+                return DeserializePayload(envelope.Data, type);
+            }
+            catch (Exception e) when (!(e is SaveException))
+            {
+                throw new SaveSerializationException($"Could not read a '{type.Name}' from the file.", e);
+            }
+        }
+
+        /// <inheritdoc />
+        public SaveData DeserializePayload(JObject payload, Type type)
+        {
+            if (payload == null)
+            {
+                throw new ArgumentNullException(nameof(payload));
+            }
+
+            if (type == null)
+            {
+                throw new ArgumentNullException(nameof(type));
+            }
+
+            try
+            {
+                var instance = payload.ToObject(type, _payloadSerializer);
                 if (instance is SaveData saveData)
                 {
                     return saveData;
@@ -138,24 +161,37 @@ namespace ImplicitSave.Serialization
             }
             catch (Exception e) when (!(e is SaveException))
             {
-                throw new SaveSerializationException($"Could not read a '{type.Name}' from the file.", e);
+                throw new SaveSerializationException($"Could not read a '{type.Name}' from the payload.", e);
             }
         }
 
-        /// <summary>
-        /// Reads only the envelope. The migration pipeline uses this to inspect
-        /// <see cref="SaveEnvelope.SchemaVersion"/> before deciding how to read the payload.
-        /// </summary>
-        internal SaveEnvelope ReadEnvelope(byte[] content)
+        /// <inheritdoc />
+        public SaveEnvelope ReadEnvelope(byte[] content)
         {
-            var json = Utf8.GetString(content);
+            if (content == null)
+            {
+                throw new ArgumentNullException(nameof(content));
+            }
 
             SaveEnvelope envelope;
-            using (var reader = new JsonTextReader(new System.IO.StringReader(json)))
+
+            try
             {
-                // The project's global JsonConvert defaults must not reach in here - a user who set
-                // their own would silently change how every save file is read.
-                envelope = _envelopeSerializer.Deserialize<SaveEnvelope>(reader);
+                var json = Utf8.GetString(content);
+
+                using (var reader = new JsonTextReader(new System.IO.StringReader(json)))
+                {
+                    // The project's global JsonConvert defaults must not reach in here - a user who
+                    // set their own would silently change how every save file is read.
+                    envelope = _envelopeSerializer.Deserialize<SaveEnvelope>(reader);
+                }
+            }
+            catch (Exception e)
+            {
+                // A truncated file throws a Newtonsoft exception, and letting that out would both
+                // leak the dependency and slip past the recovery path, which only catches
+                // SaveException.
+                throw new SaveSerializationException("The file could not be parsed as JSON.", e);
             }
 
             if (envelope == null || envelope.SaveId == null)

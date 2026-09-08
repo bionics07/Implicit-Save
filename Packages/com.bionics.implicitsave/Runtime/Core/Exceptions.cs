@@ -73,4 +73,62 @@ namespace ImplicitSave
         {
         }
     }
+
+    /// <summary>
+    /// The file was written by a newer version of the game than the one running. It is left
+    /// untouched and the save is loaded read-only.
+    /// </summary>
+    /// <remarks>
+    /// Usually a player who rolled back a build, or who shares a save between two machines. The one
+    /// thing that must not happen here is overwriting: the newer file holds progress this build
+    /// cannot even represent, and writing over it destroys it for good.
+    /// </remarks>
+    public class FutureVersionException : SaveException
+    {
+        /// <summary>Identity of the save.</summary>
+        public string SaveId { get; }
+
+        /// <summary>Schema version found in the file.</summary>
+        public int FileVersion { get; }
+
+        /// <summary>Schema version this build understands.</summary>
+        public int SupportedVersion { get; }
+
+        /// <param name="saveId">Identity of the save.</param>
+        /// <param name="fileVersion">Schema version found in the file.</param>
+        /// <param name="supportedVersion">Schema version this build understands.</param>
+        public FutureVersionException(string saveId, int fileVersion, int supportedVersion)
+            : base($"Save '{saveId}' is at schema version {fileVersion}, but this build only understands " +
+                   $"{supportedVersion}. It was written by a newer version of the game. The file was left " +
+                   "untouched and the save is read-only, so nothing is overwritten.")
+        {
+            SaveId = saveId;
+            FileVersion = fileVersion;
+            SupportedVersion = supportedVersion;
+        }
+    }
+
+    /// <summary>
+    /// An older save cannot be brought up to date because a step in the migration chain is missing.
+    /// </summary>
+    public class MigrationMissingException : SaveException
+    {
+        /// <summary>The save class being migrated.</summary>
+        public Type TargetType { get; }
+
+        /// <summary>The version the chain got stuck at.</summary>
+        public int FromVersion { get; }
+
+        /// <param name="targetType">The save class being migrated.</param>
+        /// <param name="fromVersion">The version the chain got stuck at.</param>
+        /// <param name="toVersion">The version it needed to reach.</param>
+        public MigrationMissingException(Type targetType, int fromVersion, int toVersion)
+            : base($"'{targetType.Name}' has a save at schema version {fromVersion} and needs to reach " +
+                   $"{toVersion}, but no migration from {fromVersion} to {fromVersion + 1} exists. Write an " +
+                   $"ISaveMigration with FromVersion {fromVersion} and ToVersion {fromVersion + 1}.")
+        {
+            TargetType = targetType;
+            FromVersion = fromVersion;
+        }
+    }
 }

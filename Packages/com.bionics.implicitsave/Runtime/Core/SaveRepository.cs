@@ -22,8 +22,10 @@ namespace ImplicitSave
         private readonly ISaveSerializer _serializer;
         private readonly ISaveStorage _storage;
         private readonly Dictionary<SaveKey, SaveData> _instances = new Dictionary<SaveKey, SaveData>();
+        private readonly Dictionary<Type, int> _schemaVersions = new Dictionary<Type, int>();
         private readonly DirtyTracker _dirtyTracker = new DirtyTracker();
         private readonly SaveWriteQueue _writeQueue;
+        private readonly MigrationPipeline _migrations;
 
         /// <summary>
         /// Raised when a save could not be loaded or written. A game listens to this to tell the
@@ -43,12 +45,26 @@ namespace ImplicitSave
         /// <param name="serializer">Converts instances to bytes and back.</param>
         /// <param name="storage">Where those bytes live.</param>
         public SaveRepository(ISaveSerializer serializer, ISaveStorage storage)
+            : this(serializer, storage, null)
+        {
+        }
+
+        /// <param name="serializer">Converts instances to bytes and back.</param>
+        /// <param name="storage">Where those bytes live.</param>
+        /// <param name="migrations">
+        /// Brings older files up to date. When null, the migrations found in the project are used.
+        /// </param>
+        public SaveRepository(ISaveSerializer serializer, ISaveStorage storage, MigrationPipeline migrations)
         {
             _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
             _storage = storage ?? throw new ArgumentNullException(nameof(storage));
+            _migrations = migrations ?? new MigrationPipeline(SaveTypeRegistry.GetMigrations());
             _writeQueue = new SaveWriteQueue(storage);
             _writeQueue.Failed += e => Failed?.Invoke(e);
         }
+
+        /// <summary>The migrations that bring older save files up to date.</summary>
+        public MigrationPipeline Migrations => _migrations;
 
         /// <summary>Tracks what was last written, so an unchanged save is not rewritten.</summary>
         public DirtyTracker DirtyTracker => _dirtyTracker;
@@ -84,6 +100,7 @@ namespace ImplicitSave
             var instance = Load(type, profileId);
             instance.ProfileId = profileId;
             instance.IsDirty = false;
+
             _instances[key] = instance;
             return instance;
         }
@@ -183,6 +200,16 @@ namespace ImplicitSave
         {
             var saveId = SaveIdResolver.Resolve(type);
 
+            if (instance.IsReadOnly)
+            {
+                // The file was written by a newer build. Overwriting it would destroy progress this
+                // build cannot even represent, so nothing is written - not even on force.
+                ImplicitSaveLog.Info(
+                    $"Skipped writing '{saveId}' of profile {profileId}: the file on disk is from a newer " +
+                    "version of the game.");
+                return;
+            }
+
             try
             {
                 // Always on the main thread: the instance may hold Unity types and the game may be
@@ -248,16 +275,79 @@ namespace ImplicitSave
 
             try
             {
-                var instance = _serializer.Deserialize(_storage.Read(profileId, saveId), type);
+                var instance = ReadAndMigrate(_storage.Read(profileId, saveId), type, saveId);
                 instance.OnAfterLoad();
                 ImplicitSaveLog.Info($"Loaded '{saveId}' of profile {profileId}.");
                 Loaded?.Invoke(type, profileId);
                 return instance;
             }
+            catch (FutureVersionException e)
+            {
+                // Not a recovery case: the file is perfectly valid, just newer than this build. It
+                // must be left exactly as it is.
+                ImplicitSaveLog.Warning(e.Message);
+                Failed?.Invoke(e);
+
+                var placeholder = CreateFresh(type);
+                placeholder.IsReadOnly = true;
+                return placeholder;
+            }
             catch (SaveException e)
             {
                 return Recover(type, profileId, saveId, e);
             }
+        }
+
+        /// <summary>
+        /// Reads a file, brings it up to the version this build expects, and turns it into an
+        /// instance.
+        /// </summary>
+        /// <remarks>
+        /// The version check happens before anything is deserialized. A file from a newer build is
+        /// never read into an object, because doing so would quietly drop the fields this build does
+        /// not know about - and the next write would then persist that loss.
+        /// </remarks>
+        private SaveData ReadAndMigrate(byte[] content, Type type, string saveId)
+        {
+            var envelope = _serializer.ReadEnvelope(content);
+
+            if (envelope.Data == null)
+            {
+                throw new SaveSerializationException(
+                    $"The file for '{saveId}' has no payload to read.", null);
+            }
+
+            var currentVersion = GetCurrentSchemaVersion(type);
+
+            if (envelope.SchemaVersion > currentVersion)
+            {
+                throw new FutureVersionException(saveId, envelope.SchemaVersion, currentVersion);
+            }
+
+            var payload = envelope.SchemaVersion < currentVersion
+                ? _migrations.Migrate(type, envelope.Data, envelope.SchemaVersion, currentVersion)
+                : envelope.Data;
+
+            return _serializer.DeserializePayload(payload, type);
+        }
+
+        /// <summary>
+        /// The schema version the current build expects for this save type.
+        /// </summary>
+        /// <remarks>
+        /// SchemaVersion is a virtual property, so reading it needs an instance. The answer never
+        /// changes for a given type within a run, hence the cache.
+        /// </remarks>
+        private int GetCurrentSchemaVersion(Type type)
+        {
+            if (_schemaVersions.TryGetValue(type, out var version))
+            {
+                return version;
+            }
+
+            version = ((SaveData)Activator.CreateInstance(type)).SchemaVersion;
+            _schemaVersions[type] = version;
+            return version;
         }
 
         /// <summary>
@@ -274,7 +364,7 @@ namespace ImplicitSave
             {
                 try
                 {
-                    var instance = _serializer.Deserialize(backup, type);
+                    var instance = ReadAndMigrate(backup, type, saveId);
                     instance.OnAfterLoad();
                     ImplicitSaveLog.Warning($"Recovered '{saveId}' of profile {profileId} from its backup.");
                     return instance;

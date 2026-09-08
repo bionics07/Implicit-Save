@@ -47,6 +47,17 @@ namespace ImplicitSave
         [JsonIgnore, NonSerialized] public bool IsDirty;
 
         /// <summary>
+        /// Set when the file on disk was written by a newer version of the game than the one
+        /// running. While this is true the save is never written, so the newer file survives.
+        /// </summary>
+        /// <remarks>
+        /// A game should check this before letting the player carry on - continuing would look like
+        /// it worked, and the progress in the newer file would still be unreachable. Showing "this
+        /// save is from a newer version" is far kinder than silently starting over.
+        /// </remarks>
+        [JsonIgnore, NonSerialized] public bool IsReadOnly;
+
+        /// <summary>
         /// Optional fast-path that flags this instance as changed. Under the default hash-diff
         /// strategy calling it is unnecessary - changes are detected on their own.
         /// </summary>

@@ -51,6 +51,7 @@ namespace ImplicitSave.Editor
             // compiled into a player, so naming its types here produces a file that cannot compile.
             var saveTypes = SaveTypeDiscovery.FindBuildableSaveTypes();
             var subtypes = SaveTypeDiscovery.FindBuildableSubtypes();
+            var migrations = SaveTypeDiscovery.FindBuildableMigrations();
 
             var problems = Validate(saveTypes, subtypes);
             if (problems.Count > 0)
@@ -65,9 +66,9 @@ namespace ImplicitSave.Editor
 
             Directory.CreateDirectory(OutputFolder);
 
-            var wrote = WriteAssemblyDefinition(saveTypes, subtypes);
-            wrote |= WriteIfChanged(RegistryPath, BuildRegistrySource(saveTypes, subtypes));
-            wrote |= WriteIfChanged(LinkXmlPath, BuildLinkXml(saveTypes, subtypes));
+            var wrote = WriteAssemblyDefinition(saveTypes, subtypes, migrations);
+            wrote |= WriteIfChanged(RegistryPath, BuildRegistrySource(saveTypes, subtypes, migrations));
+            wrote |= WriteIfChanged(LinkXmlPath, BuildLinkXml(saveTypes, subtypes, migrations));
 
             if (wrote)
             {
@@ -93,9 +94,10 @@ namespace ImplicitSave.Editor
         /// <c>Assembly-CSharp</c>, which can see everything auto-referenced.</item>
         /// </list>
         /// </remarks>
-        private static bool WriteAssemblyDefinition(IReadOnlyList<Type> saveTypes, IReadOnlyList<Type> subtypes)
+        private static bool WriteAssemblyDefinition(
+            IReadOnlyList<Type> saveTypes, IReadOnlyList<Type> subtypes, IReadOnlyList<Type> migrations)
         {
-            var assemblies = CollectAssemblies(saveTypes, subtypes);
+            var assemblies = CollectAssemblies(saveTypes, subtypes, migrations);
             var needsPredefined = false;
 
             foreach (var assembly in assemblies)
@@ -136,18 +138,16 @@ namespace ImplicitSave.Editor
             return WriteIfChanged(AsmdefPath, json.ToString());
         }
 
-        private static List<string> CollectAssemblies(IReadOnlyList<Type> saveTypes, IReadOnlyList<Type> subtypes)
+        private static List<string> CollectAssemblies(params IReadOnlyList<Type>[] groups)
         {
             var assemblies = new SortedSet<string>(StringComparer.Ordinal);
 
-            foreach (var type in saveTypes)
+            foreach (var group in groups)
             {
-                assemblies.Add(type.Assembly.GetName().Name);
-            }
-
-            foreach (var type in subtypes)
-            {
-                assemblies.Add(type.Assembly.GetName().Name);
+                foreach (var type in group)
+                {
+                    assemblies.Add(type.Assembly.GetName().Name);
+                }
             }
 
             return new List<string>(assemblies);
@@ -199,7 +199,24 @@ namespace ImplicitSave.Editor
             }
 
             CheckAssemblyVisibility(saveTypes, subtypes, problems);
+            CheckMigrations(problems);
             return problems;
+        }
+
+        /// <summary>
+        /// A migration that cannot be created is a save that cannot be brought up to date, which
+        /// shows up as a player losing progress after an update.
+        /// </summary>
+        private static void CheckMigrations(List<string> problems)
+        {
+            foreach (var type in SaveTypeDiscovery.FindBuildableMigrations())
+            {
+                if (type.GetConstructor(Type.EmptyTypes) == null)
+                {
+                    problems.Add($"'{type.FullName}' is an ISaveMigration with no public parameterless " +
+                                 "constructor, so it can never run.");
+                }
+            }
         }
 
         /// <summary>
@@ -261,7 +278,8 @@ namespace ImplicitSave.Editor
             seen[id] = type;
         }
 
-        private static string BuildRegistrySource(IReadOnlyList<Type> saveTypes, IReadOnlyList<Type> subtypes)
+        private static string BuildRegistrySource(
+            IReadOnlyList<Type> saveTypes, IReadOnlyList<Type> subtypes, IReadOnlyList<Type> migrations)
         {
             var source = new StringBuilder(2048);
 
@@ -290,8 +308,9 @@ namespace ImplicitSave.Editor
 
             AppendSection(source, "save roots", saveTypes, isSubtype: false);
             AppendSection(source, "polymorphic subtypes", subtypes, isSubtype: true);
+            AppendMigrations(source, migrations);
 
-            if (saveTypes.Count == 0 && subtypes.Count == 0)
+            if (saveTypes.Count == 0 && subtypes.Count == 0 && migrations.Count == 0)
             {
                 source.AppendLine("            // No save types in this project yet. Declare a class deriving from");
                 source.AppendLine("            // ImplicitSave.SaveData and this file will fill itself in.");
@@ -335,23 +354,48 @@ namespace ImplicitSave.Editor
             source.AppendLine();
         }
 
+        private static void AppendMigrations(StringBuilder source, IReadOnlyList<Type> migrations)
+        {
+            if (migrations.Count == 0)
+            {
+                return;
+            }
+
+            var entries = new List<string>(migrations.Count);
+
+            foreach (var type in migrations)
+            {
+                var name = "global::" + type.FullName.Replace('+', '.');
+                entries.Add($"            ImplicitSave.SaveTypeRegistry.RegisterMigration(new {name}());");
+            }
+
+            entries.Sort(StringComparer.Ordinal);
+
+            source.AppendLine("            // migrations");
+            foreach (var entry in entries)
+            {
+                source.AppendLine(entry);
+            }
+
+            source.AppendLine();
+        }
+
         /// <summary>
         /// Tells the linker to keep these types whole. Redundant with the registry on purpose: the
         /// registry keeps the type, this also keeps its fields and constructor under aggressive
         /// stripping.
         /// </summary>
-        private static string BuildLinkXml(IReadOnlyList<Type> saveTypes, IReadOnlyList<Type> subtypes)
+        private static string BuildLinkXml(
+            IReadOnlyList<Type> saveTypes, IReadOnlyList<Type> subtypes, IReadOnlyList<Type> migrations)
         {
             var byAssembly = new SortedDictionary<string, SortedSet<string>>(StringComparer.Ordinal);
 
-            foreach (var type in saveTypes)
+            foreach (var group in new[] { saveTypes, subtypes, migrations })
             {
-                AddToAssembly(byAssembly, type);
-            }
-
-            foreach (var type in subtypes)
-            {
-                AddToAssembly(byAssembly, type);
+                foreach (var type in group)
+                {
+                    AddToAssembly(byAssembly, type);
+                }
             }
 
             var xml = new StringBuilder(1024);

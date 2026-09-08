@@ -69,6 +69,8 @@ namespace ImplicitSave
 
         private static readonly Dictionary<Type, string> IdByType = new Dictionary<Type, string>();
         private static readonly List<SaveTypeEntry> Entries = new List<SaveTypeEntry>();
+        private static readonly List<ISaveMigration> Migrations = new List<ISaveMigration>();
+        private static readonly HashSet<Type> MigrationTypes = new HashSet<Type>();
 
         /// <summary>
         /// Installed by the editor so the registry can fill itself by scanning the project. Null in
@@ -91,6 +93,8 @@ namespace ImplicitSave
             ById.Clear();
             IdByType.Clear();
             Entries.Clear();
+            Migrations.Clear();
+            MigrationTypes.Clear();
             _discoveryRan = false;
         }
 
@@ -124,6 +128,27 @@ namespace ImplicitSave
         public static void RegisterSubtype(string typeId, Type type, Func<object> factory)
         {
             Add(new SaveTypeEntry(typeId, type, isSubtype: true, SaveTypeOrigin.GeneratedRegistry, factory));
+        }
+
+        /// <summary>
+        /// Registers a migration. Called by the generated registry and by the editor scan; a game
+        /// never calls it.
+        /// </summary>
+        public static void RegisterMigration(ISaveMigration migration)
+        {
+            if (migration == null || !MigrationTypes.Add(migration.GetType()))
+            {
+                return;
+            }
+
+            Migrations.Add(migration);
+        }
+
+        /// <summary>Every migration found in the project.</summary>
+        public static IReadOnlyList<ISaveMigration> GetMigrations()
+        {
+            EnsureDiscovered();
+            return Migrations;
         }
 
         internal static void Add(SaveTypeEntry entry)

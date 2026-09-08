@@ -56,6 +56,18 @@ namespace ImplicitSave.Editor
             return Collect(TypeCache.GetTypesWithAttribute<SaveTypeAttribute>(), buildableOnly: true);
         }
 
+        /// <summary>Every migration the editor can see.</summary>
+        public static IReadOnlyList<Type> FindMigrations()
+        {
+            return Collect(TypeCache.GetTypesDerivedFrom<ISaveMigration>(), buildableOnly: false);
+        }
+
+        /// <summary>Migrations that will exist in a build.</summary>
+        public static IReadOnlyList<Type> FindBuildableMigrations()
+        {
+            return Collect(TypeCache.GetTypesDerivedFrom<ISaveMigration>(), buildableOnly: true);
+        }
+
         /// <summary>
         /// Save types the editor can see that a build cannot, with the reason. Surfacing these is
         /// how a type quietly missing from a player build gets noticed before release.
@@ -93,6 +105,17 @@ namespace ImplicitSave.Editor
                 SaveTypeRegistry.Add(new SaveTypeEntry(
                     ResolveSubtypeId(type), type, isSubtype: true, SaveTypeOrigin.EditorScan,
                     () => Activator.CreateInstance(captured)));
+            }
+
+            foreach (var type in FindMigrations())
+            {
+                if (type.GetConstructor(Type.EmptyTypes) == null)
+                {
+                    // Reported properly by the generator's validation; here it just cannot be built.
+                    continue;
+                }
+
+                SaveTypeRegistry.RegisterMigration((ISaveMigration)Activator.CreateInstance(type));
             }
         }
 
