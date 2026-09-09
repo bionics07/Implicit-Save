@@ -70,6 +70,10 @@ namespace ImplicitSave
         [Tooltip("Log every load and write. Off by default so the package stays quiet.")]
         public bool VerboseLogging;
 
+        [Tooltip("Fail the whole load when a save holds a subtype this build no longer has. " +
+                 "Off by default: the value is dropped and logged, and the rest of the save survives.")]
+        public bool FailOnUnknownSubtype;
+
         private static ImplicitSaveSettings _instance;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]

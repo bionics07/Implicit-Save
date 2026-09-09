@@ -474,5 +474,106 @@ namespace ImplicitSave.Tests.EditorTests
 
             _storage.Write(0, saveId, Encoding.UTF8.GetBytes(json));
         }
+
+        [Test]
+        public void Clone_MakesAnIndependentCopy()
+        {
+            // Feeds the window's change marker: a field is compared against where it started, so the
+            // copy must not move when the original does.
+            var data = (PlayerProgressSaveData)_session.Load(typeof(PlayerProgressSaveData), 0, out _);
+            data.Currency.Gold = 100;
+
+            var copy = (PlayerProgressSaveData)_session.Clone(data);
+            data.Currency.Gold = 200;
+
+            Assert.That(copy, Is.Not.SameAs(data));
+            Assert.That(copy.Currency, Is.Not.SameAs(data.Currency), "a shallow copy would share this");
+            Assert.That(copy.Currency.Gold, Is.EqualTo(100));
+        }
+
+        [Test]
+        public void Clone_ReturnsNullRatherThanThrowingOnASaveItCannotRoundTrip()
+        {
+            Assert.That(_session.Clone(null), Is.Null);
+        }
+
+        [Test]
+        public void OrphanList_ShowsAFileNoClassAnswersFor()
+        {
+            // Exactly what a renamed [SaveId] leaves behind: the id is the file name, so the game
+            // starts looking elsewhere and this stays put.
+            _storage.Write(0, "id_that_moved_on", System.Text.Encoding.UTF8.GetBytes(
+                "{\"$saveId\":\"id_that_moved_on\",\"$schemaVersion\":1,\"data\":{}}"));
+
+            Assert.That(_session.ListOrphanSaves(0), Has.Member("id_that_moved_on"));
+        }
+
+        [Test]
+        public void OrphanList_NeverIncludesASaveThatStillHasAClass()
+        {
+            WriteRaw("player_progress", 1, "{\"Currency\": {\"Gold\": 10}}");
+
+            Assert.That(_session.ListOrphanSaves(0), Has.None.EqualTo("player_progress"));
+        }
+
+        [Test]
+        public void OrphanList_IsEmptyWhenEveryFileHasAClass()
+        {
+            WriteRaw("player_progress", 1, "{\"Currency\": {\"Gold\": 10}}");
+
+            Assert.That(_session.ListOrphanSaves(0), Is.Empty);
+        }
+
+        [Test]
+        public void DeleteById_RemovesAnOrphanedFile()
+        {
+            _storage.Write(0, "id_that_moved_on", System.Text.Encoding.UTF8.GetBytes(
+                "{\"$saveId\":\"id_that_moved_on\",\"$schemaVersion\":1,\"data\":{}}"));
+
+            _session.DeleteById(0, "id_that_moved_on");
+
+            Assert.That(_session.ListOrphanSaves(0), Is.Empty);
+        }
+
+        [Test]
+        public void SaveList_ShowsTheClassNameWithoutTheSaveDataSuffix()
+        {
+            // The id is the file name and the class name is what the author wrote. The list shows
+            // the one you recognise.
+            Assert.That(SaveEntry.FriendlyName(typeof(SuffixedSaveData)), Is.EqualTo("Suffixed"));
+        }
+
+        [Test]
+        public void SaveList_LeavesAClassNameThatDoesNotEndInSaveDataAlone()
+        {
+            Assert.That(SaveEntry.FriendlyName(typeof(NoSuffixProgress)), Is.EqualTo("NoSuffixProgress"));
+        }
+
+        [Test]
+        public void SaveList_DoesNotTrimAClassIntoNothing()
+        {
+            // Trimming the suffix off a class called exactly that would leave an empty label.
+            Assert.That(SaveEntry.FriendlyName(typeof(SaveData)), Is.EqualTo(nameof(SaveData)));
+        }
+
+        [Test]
+        public void SaveList_HandlesAMissingType()
+        {
+            Assert.That(SaveEntry.FriendlyName(null), Is.Null);
+        }
+
+        private class SuffixedSaveData : SaveData
+        {
+            public override void ResetToDefaults()
+            {
+            }
+        }
+
+        private class NoSuffixProgress : SaveData
+        {
+            public override void ResetToDefaults()
+            {
+            }
+        }
     }
 }

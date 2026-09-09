@@ -308,6 +308,7 @@ namespace ImplicitSave.Editor
 
             AppendSection(source, "save roots", saveTypes, isSubtype: false);
             AppendSection(source, "polymorphic subtypes", subtypes, isSubtype: true);
+            AppendPreviousIds(source, subtypes);
             AppendMigrations(source, migrations);
 
             if (saveTypes.Count == 0 && subtypes.Count == 0 && migrations.Count == 0)
@@ -340,12 +341,53 @@ namespace ImplicitSave.Editor
 
                 entries.Add($"            ImplicitSave.SaveTypeRegistry.{method}(" +
                             $"\"{id}\", typeof({name}), () => new {name}());");
+
             }
 
             // Sorted so the file has a stable order and a clean diff in Git.
             entries.Sort(StringComparer.Ordinal);
 
             source.AppendLine($"            // {title}");
+            foreach (var entry in entries)
+            {
+                source.AppendLine(entry);
+            }
+
+            source.AppendLine();
+        }
+
+        /// <summary>
+        /// Writes the ids types used to answer to, after every live id is registered.
+        /// </summary>
+        /// <remarks>
+        /// The order is load-bearing. Registering an alias checks whether some type is using that id
+        /// TODAY, and reports it rather than handing one type's saves to another - a check that only
+        /// works if the live ids are already in. Emitting these in their own section afterwards is
+        /// what guarantees that, and it survives the alphabetical sort inside each section.
+        /// </remarks>
+        private static void AppendPreviousIds(StringBuilder source, IReadOnlyList<Type> subtypes)
+        {
+            var entries = new List<string>();
+
+            foreach (var type in subtypes)
+            {
+                var name = "global::" + type.FullName.Replace('+', '.');
+
+                foreach (var previous in SaveTypeDiscovery.ResolvePreviousIds(type))
+                {
+                    entries.Add("            ImplicitSave.SaveTypeRegistry.RegisterPreviousId(" +
+                                $"\"{previous}\", typeof({name}));");
+                }
+            }
+
+            if (entries.Count == 0)
+            {
+                return;
+            }
+
+            entries.Sort(StringComparer.Ordinal);
+
+            source.AppendLine("            // ids these types used to be written under");
             foreach (var entry in entries)
             {
                 source.AppendLine(entry);

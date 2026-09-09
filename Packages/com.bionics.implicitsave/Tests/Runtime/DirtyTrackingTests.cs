@@ -230,5 +230,82 @@ namespace ImplicitSave.Tests
                     "A change in the last byte has to reach the hash.");
             }
         }
+
+        [Test]
+        public void AnUnchangedSave_StaysUnchangedAfterTheClockMoves()
+        {
+            // The bug this pins: the envelope carries $savedAt, stamped from the clock on every
+            // serialization, and the dirty check hashed the whole file. Two passes over an untouched
+            // object therefore differed and every tick wrote.
+            //
+            // It survived a full suite because the timestamp has ONE-SECOND resolution and tests run
+            // in milliseconds - so this test has to let a second pass, and that cost is the point of
+            // it. Without the wait it passes either way and proves nothing.
+            var data = SaveManager.Get<PlayerProgressSaveData>();
+            data.Currency.Gold = 10;
+            SaveManager.Save<PlayerProgressSaveData>();
+            SaveManager.FlushSynchronously(TimeSpan.FromSeconds(5));
+
+            var afterFirstWrite = _storage.WriteCount;
+
+            System.Threading.Thread.Sleep(1100);
+
+            SaveManager.AutoSave();
+            SaveManager.FlushSynchronously(TimeSpan.FromSeconds(5));
+
+            Assert.That(_storage.WriteCount, Is.EqualTo(afterFirstWrite),
+                "a tick over an untouched save must write nothing, however long it has been");
+        }
+
+        [Test]
+        public void ARealChange_StillWritesAfterTheClockMoves()
+        {
+            // The other half: ignoring the timestamp must not make the check blind.
+            var data = SaveManager.Get<PlayerProgressSaveData>();
+            data.Currency.Gold = 10;
+            SaveManager.Save<PlayerProgressSaveData>();
+            SaveManager.FlushSynchronously(TimeSpan.FromSeconds(5));
+
+            var afterFirstWrite = _storage.WriteCount;
+
+            System.Threading.Thread.Sleep(1100);
+            data.Currency.Gold = 11;
+
+            SaveManager.AutoSave();
+            SaveManager.FlushSynchronously(TimeSpan.FromSeconds(5));
+
+            Assert.That(_storage.WriteCount, Is.EqualTo(afterFirstWrite + 1));
+        }
+
+        [Test]
+        public void ContentHash_IgnoresTheTimestampAndNothingElse()
+        {
+            var serializer = new NewtonsoftSaveSerializer(prettyPrint: false);
+            var data = new PlayerProgressSaveData();
+            data.Currency.Gold = 7;
+
+            var first = serializer.Serialize(data, "player_progress");
+            System.Threading.Thread.Sleep(1100);
+            var second = serializer.Serialize(data, "player_progress");
+
+            Assert.That(first, Is.Not.EqualTo(second), "the raw bytes do differ - that is the trap");
+            Assert.That(DirtyTracker.ComputeContentHash(first),
+                Is.EqualTo(DirtyTracker.ComputeContentHash(second)));
+
+            data.Currency.Gold = 8;
+            var changed = serializer.Serialize(data, "player_progress");
+
+            Assert.That(DirtyTracker.ComputeContentHash(changed),
+                Is.Not.EqualTo(DirtyTracker.ComputeContentHash(first)));
+        }
+
+        [Test]
+        public void ContentHash_FallsBackToHashingEverythingWithoutATimestamp()
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes("{\"data\":{\"Gold\":1}}");
+
+            Assert.That(DirtyTracker.ComputeContentHash(bytes),
+                Is.EqualTo(DirtyTracker.ComputeHash(bytes)));
+        }
     }
 }

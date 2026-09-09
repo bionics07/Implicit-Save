@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using ImplicitSave.Serialization;
 using UnityEditor;
 using UnityEngine;
 
@@ -29,7 +30,40 @@ namespace ImplicitSave.Editor
         private Type _selectedType;
         private int _profileId;
         private bool _isLive;
+
+        /// <summary>
+        /// The save exactly as it was loaded, so a field can be compared against where it started.
+        /// </summary>
+        /// <remarks>
+        /// Remembering which fields were TOUCHED would have been less code, but it marks a value you
+        /// typed over and put back - and a marker that lies is worse than none. Comparing against a
+        /// copy of the original means the mark appears when the value differs and goes away when it
+        /// stops differing, which is what someone reading it will assume it means.
+        /// </remarks>
+        private SaveProxy _baseline;
+
+        private SerializedObject _serializedBaseline;
+        /// <summary>
+        /// Whether the save on screen differs from the file. Recomputed once per repaint from the
+        /// baseline, never latched.
+        /// </summary>
+        /// <remarks>
+        /// This started as a flag that was set on the first edit and only cleared on apply, which
+        /// meant the header and the Apply button kept insisting there were changes after a value was
+        /// typed back to what it had been - while the field's own asterisk, which compares properly,
+        /// had already gone. Two answers to one question, disagreeing on screen.
+        /// </remarks>
         private bool _hasPendingChanges;
+
+        /// <summary>
+        /// Whether anything has been edited at all since the save was loaded or applied.
+        /// </summary>
+        /// <remarks>
+        /// Only a gate for the comparison, not an answer in itself. Until something is touched there
+        /// is nothing to compare, and skipping it keeps a deep compare of the whole save off the
+        /// repaint path - which matters in play mode, where the window repaints ten times a second.
+        /// </remarks>
+        private bool _touched;
         private string _filter = string.Empty;
         private bool _showEditorOnly;
         private string _message;
@@ -66,12 +100,41 @@ namespace ImplicitSave.Editor
             DestroyProxy();
         }
 
+        /// <summary>
+        /// Rebinds the window when the game starts or stops.
+        /// </summary>
+        /// <remarks>
+        /// Crossing this line changes WHAT a selected save means: while the game runs the window
+        /// edits the live instance the game is holding, and outside play mode it edits the file. The
+        /// old proxy points at the wrong one of those, so it is dropped and the selection is loaded
+        /// again from scratch.
+        /// <para>
+        /// Selecting again is the part that has to be explicit. <see cref="Refresh"/> leaves an
+        /// existing selection alone - it is for picking up new saves in the list, not for throwing
+        /// away what you were editing - so on its own it would leave the window with no proxy at
+        /// all, silently editing nothing.
+        /// </para>
+        /// </remarks>
         private void OnPlayModeChanged(PlayModeStateChange change)
         {
+            var previous = _selectedType;
+
             DestroyProxy();
             _hasPendingChanges = false;
+            _touched = false;
             _session = new SaveEditorSession();
-            Refresh();
+            _entries = _session.ListSaves(_profileId, _showEditorOnly);
+
+            if (IsListed(previous))
+            {
+                Select(previous);
+            }
+            else
+            {
+                _selectedType = null;
+                Refresh();
+            }
+
             Repaint();
         }
 
@@ -90,7 +153,7 @@ namespace ImplicitSave.Editor
             if (_serializedProxy != null)
             {
                 _serializedProxy.Update();
-                _hasPendingChanges = true;
+                _touched = true;
             }
 
             Repaint();
@@ -117,6 +180,7 @@ namespace ImplicitSave.Editor
 
             _selectedType = type;
             _hasPendingChanges = false;
+            _touched = false;
 
             if (type == null)
             {
@@ -128,6 +192,7 @@ namespace ImplicitSave.Editor
                 var data = _session.Load(type, _profileId, out _isLive);
                 _proxy = SaveProxy.Create(data);
                 _serializedProxy = new SerializedObject(_proxy);
+                CaptureBaseline(data);
                 SetMessage(null, MessageType.Info);
             }
             catch (SaveException e)
@@ -136,8 +201,93 @@ namespace ImplicitSave.Editor
             }
         }
 
+        /// <summary>Takes the copy every field is compared against.</summary>
+        private void CaptureBaseline(SaveData data)
+        {
+            DestroyBaseline();
+
+            var copy = _session.Clone(data);
+
+            if (copy == null)
+            {
+                // A save the serializer cannot round-trip. The window still works; it just cannot
+                // point at which fields differ.
+                return;
+            }
+
+            _baseline = SaveProxy.Create(copy);
+            _serializedBaseline = new SerializedObject(_baseline);
+        }
+
+        private void DestroyBaseline()
+        {
+            if (_serializedBaseline != null)
+            {
+                _serializedBaseline.Dispose();
+                _serializedBaseline = null;
+            }
+
+            if (_baseline != null)
+            {
+                DestroyImmediate(_baseline);
+                _baseline = null;
+            }
+        }
+
+        /// <summary>
+        /// Works out, once per repaint, whether the save on screen still differs from the file.
+        /// </summary>
+        /// <remarks>
+        /// Once per repaint rather than per read: the header, the Apply button and the refresh
+        /// prompt all ask, and each answer costs a deep comparison of the whole save.
+        /// <para>
+        /// With no baseline to compare against - a save the serializer could not round-trip - having
+        /// been edited has to count as changed. Refusing to apply a change someone made would be a
+        /// worse failure than offering to apply one that turns out to be identical.
+        /// </para>
+        /// </remarks>
+        private void RecomputePendingChanges()
+        {
+            if (!_touched || _serializedProxy == null)
+            {
+                _hasPendingChanges = false;
+                return;
+            }
+
+            if (_serializedBaseline == null)
+            {
+                _hasPendingChanges = true;
+                return;
+            }
+
+            _serializedProxy.Update();
+
+            var current = _serializedProxy.FindProperty(nameof(SaveProxy.Data));
+            var original = _serializedBaseline.FindProperty(nameof(SaveProxy.Data));
+
+            _hasPendingChanges = current == null || original == null
+                                 || !SerializedProperty.DataEquals(current, original);
+        }
+
+        /// <summary>Whether this field differs from the value it was loaded with.</summary>
+        private bool IsFieldChanged(SerializedProperty property)
+        {
+            // Nothing pending means nothing can differ, and this short-circuit is what keeps a deep
+            // comparison off the repaint path for the whole time the window is just being read.
+            if (!_touched || _serializedBaseline == null)
+            {
+                return false;
+            }
+
+            var original = _serializedBaseline.FindProperty(property.propertyPath);
+
+            return original != null && !SerializedProperty.DataEquals(property, original);
+        }
+
         private void DestroyProxy()
         {
+            DestroyBaseline();
+
             if (_serializedProxy != null)
             {
                 _serializedProxy.Dispose();
@@ -160,6 +310,7 @@ namespace ImplicitSave.Editor
             }
 
             SaveEditorStyles.EnsureBuilt();
+            RecomputePendingChanges();
 
             DrawToolbar();
 
@@ -289,8 +440,11 @@ namespace ImplicitSave.Editor
                         new GUIContent("Refresh", "Re-read the save files from disk."),
                         EditorStyles.toolbarButton, GUILayout.Width(64)))
                 {
-                    Select(_selectedType);
-                    Refresh();
+                    if (ConfirmDiscardingEdits())
+                    {
+                        Select(_selectedType);
+                        Refresh();
+                    }
                 }
 
                 if (GUILayout.Button(
@@ -379,6 +533,7 @@ namespace ImplicitSave.Editor
 
             _profileId = profileId;
             _hasPendingChanges = false;
+            _touched = false;
             Refresh();
             Select(_selectedType);
         }
@@ -418,7 +573,8 @@ namespace ImplicitSave.Editor
                 foreach (var entry in _entries)
                 {
                     if (!string.IsNullOrEmpty(_filter) &&
-                        entry.SaveId.IndexOf(_filter, StringComparison.OrdinalIgnoreCase) < 0)
+                        entry.DisplayName.IndexOf(_filter, StringComparison.OrdinalIgnoreCase) < 0
+                        && entry.SaveId.IndexOf(_filter, StringComparison.OrdinalIgnoreCase) < 0)
                     {
                         continue;
                     }
@@ -426,11 +582,106 @@ namespace ImplicitSave.Editor
                     DrawListRow(entry, index++);
                 }
 
+                DrawOrphans();
+
                 EditorGUILayout.EndScrollView();
 
                 GUILayout.FlexibleSpace();
                 DrawListFooter();
             }
+        }
+
+        /// <summary>
+        /// Lists save files no class claims, so they can be looked at and thrown away.
+        /// </summary>
+        /// <remarks>
+        /// These appear when a <c>[SaveId]</c> changes or a save class is deleted: the id is the file
+        /// name, so the game starts looking elsewhere and the old file is simply left behind. That is
+        /// the safe thing for the package to do - it cannot know whether the data still matters - but
+        /// leaving it INVISIBLE was not, because the only way to clean up was to go find the folder
+        /// by hand.
+        /// </remarks>
+        private void DrawOrphans()
+        {
+            var orphans = _session.ListOrphanSaves(_profileId);
+
+            if (orphans.Count == 0)
+            {
+                return;
+            }
+
+            GUILayout.Space(8f);
+            GUILayout.Label(
+                new GUIContent("  no class for these",
+                    "Files in this slot that no save class answers for - usually a [SaveId] that " +
+                    "changed, or a class that was deleted. The package leaves them alone rather than " +
+                    "guessing they are junk."),
+                SaveEditorStyles.Footnote);
+
+            foreach (var saveId in orphans)
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    GUILayout.Space(6f);
+                    GUILayout.Label(
+                        new GUIContent(saveId, _session.Storage.GetSavePath(_profileId, saveId)),
+                        SaveEditorStyles.Footnote, GUILayout.Height(18f));
+
+                    GUILayout.FlexibleSpace();
+
+                    if (SaveEditorStyles.DangerButtonField(
+                            new GUIContent("Delete", $"Delete '{saveId}.json' and its backup from slot {_profileId}."),
+                            SaveEditorStyles.DangerButton, GUILayout.Width(58f), GUILayout.Height(17f)))
+                    {
+                        DeleteOrphan(saveId);
+                    }
+
+                    GUILayout.Space(6f);
+                }
+            }
+        }
+
+        private void DeleteOrphan(string saveId)
+        {
+            var path = _session.Storage.GetSavePath(_profileId, saveId);
+
+            if (!EditorUtility.DisplayDialog(
+                    "Delete orphaned save?",
+                    $"No class in this project answers to '{saveId}'.\n\n{path}\n\n" +
+                    "This is what a renamed [SaveId] leaves behind. If the data still matters, cancel and " +
+                    "point a class back at that id; if it does not, this is safe to remove. Deleting cannot " +
+                    "be undone.",
+                    "Delete", "Cancel"))
+            {
+                return;
+            }
+
+            _session.DeleteById(_profileId, saveId);
+            SetMessage($"Deleted '{saveId}.json'.", MessageType.Info);
+            Repaint();
+        }
+
+        /// <summary>
+        /// Asks before a refresh throws away edits that were never applied.
+        /// </summary>
+        /// <remarks>
+        /// Refreshing re-reads the file, which is exactly what the button says it does - but outside
+        /// play mode that means unapplied edits are gone, with nothing to say they existed. While the
+        /// game runs there is nothing to ask about: the window edits the live instance directly, so
+        /// the change is already in effect and re-reading finds it again.
+        /// </remarks>
+        private bool ConfirmDiscardingEdits()
+        {
+            if (!_hasPendingChanges || _isLive)
+            {
+                return true;
+            }
+
+            return EditorUtility.DisplayDialog(
+                "Discard unapplied changes?",
+                "This save has edits that were never applied, and refreshing re-reads the file from disk." +
+                "\n\n" + "Apply first if you want to keep them.",
+                "Discard and refresh", "Cancel");
         }
 
         private void DrawListFooter()
@@ -486,7 +737,9 @@ namespace ImplicitSave.Editor
             var badgeWidth = SaveEditorStyles.BadgeWidth(kind);
 
             var labelRect = new Rect(rect.x, rect.y, rect.width - badgeWidth - 12f, rect.height);
-            GUI.Label(labelRect, new GUIContent(entry.SaveId, entry.Type.FullName),
+            GUI.Label(labelRect, new GUIContent(entry.DisplayName,
+                    $"{entry.Type.FullName}\n\nStored as '{entry.SaveId}.json'. The file is named by the id, " +
+                    "not by the class, so renaming the class leaves existing saves where they are."),
                 selected ? SaveEditorStyles.RowLabelSelected : SaveEditorStyles.RowLabel);
 
             if (kind != BadgeKind.None)
@@ -562,7 +815,8 @@ namespace ImplicitSave.Editor
             using (new EditorGUILayout.HorizontalScope())
             {
                 GUILayout.Space(8f);
-                GUILayout.Label(entry.SaveId, SaveEditorStyles.SaveTitle, GUILayout.Height(22f));
+                GUILayout.Label(new GUIContent(entry.DisplayName, $"{entry.Type.FullName}\n\nFile: {entry.SaveId}.json"),
+                    SaveEditorStyles.SaveTitle, GUILayout.Height(22f));
 
                 GUILayout.Space(2f);
                 var chip = GUILayoutUtility.GetRect(
@@ -627,10 +881,59 @@ namespace ImplicitSave.Editor
                         SaveEditorStyles.Danger);
                     break;
             }
+
+            DrawSharedReferenceWarning();
+        }
+
+        /// <summary>
+        /// Warns when one object is reachable from two places in the save, which a file cannot
+        /// represent.
+        /// </summary>
+        /// <remarks>
+        /// [SerializeReference] keeps a single shared instance, so this window shows one value in two
+        /// places and editing either changes both. JSON has no way to say "the same object again":
+        /// saving writes two copies, and loading gives back two objects that drift apart from then
+        /// on. Nothing crashes, which is exactly what makes it worth a banner - the failure surfaces
+        /// much later as "editing one stopped changing the other".
+        /// </remarks>
+        private void DrawSharedReferenceWarning()
+        {
+            if (_proxy == null || _proxy.Data == null)
+            {
+                return;
+            }
+
+            var shared = PolymorphicConverter.FindSharedReferences(_proxy.Data);
+
+            if (shared.Count == 0)
+            {
+                return;
+            }
+
+            var names = new List<string>();
+
+            foreach (var value in shared)
+            {
+                names.Add(value.GetType().Name);
+            }
+
+            SaveEditorStyles.DrawBanner(
+                $"The same object is stored in more than one place here ({string.Join(", ", names)}). " +
+                "Saving writes a separate copy for each, so after the next load they are no longer the same " +
+                "object and editing one will not change the other.",
+                SaveEditorStyles.Warning);
         }
 
         private void DrawFields()
         {
+            // The proxy can legitimately be gone - a load that failed, or a transition that has not
+            // rebound yet - and drawing is not the place to find that out by throwing.
+            if (_serializedProxy == null || _proxy == null)
+            {
+                EditorGUILayout.HelpBox("Nothing to show.", MessageType.None);
+                return;
+            }
+
             _serializedProxy.Update();
 
             var data = _serializedProxy.FindProperty(nameof(SaveProxy.Data));
@@ -656,15 +959,30 @@ namespace ImplicitSave.Editor
                 {
                     enterChildren = false;
 
-                    // PropertyField draws whatever drawer the user declared for the type, which is
-                    // the entire reason this window goes through SerializedObject.
-                    EditorGUILayout.PropertyField(iterator, true);
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        // A gutter down the left, the way an editor marks an unsaved file. Reserved
+                        // whether or not there is a mark, so nothing shifts sideways as you type.
+                        GUILayout.Label(
+                            IsFieldChanged(iterator)
+                                ? new GUIContent("*", "Edited, and not written to the file yet. Apply writes it.")
+                                : GUIContent.none,
+                            SaveEditorStyles.ChangeMark, GUILayout.Width(10f));
+
+                        using (new EditorGUILayout.VerticalScope())
+                        {
+                            // Draws whatever drawer the user declared for the type, which is the
+                            // entire reason this window goes through SerializedObject, and adds a
+                            // type picker to [SerializeReference] fields on the way past.
+                            SubtypePicker.DrawProperty(iterator);
+                        }
+                    }
                 }
 
                 if (EditorGUI.EndChangeCheck())
                 {
                     _serializedProxy.ApplyModifiedProperties();
-                    _hasPendingChanges = true;
+                    _touched = true;
                 }
             }
         }
@@ -749,6 +1067,11 @@ namespace ImplicitSave.Editor
                 _serializedProxy.ApplyModifiedProperties();
                 _session.Apply(_proxy.Data, _profileId);
                 _hasPendingChanges = false;
+                _touched = false;
+
+                // What is on screen is now what is in the file, so that becomes the new starting
+                // point and every mark clears.
+                CaptureBaseline(_proxy.Data);
                 Refresh();
 
                 SetMessage(
@@ -768,7 +1091,7 @@ namespace ImplicitSave.Editor
             Undo.RecordObject(_proxy, "Reset save to defaults");
             _proxy.Data.ResetToDefaults();
             _serializedProxy.Update();
-            _hasPendingChanges = true;
+            _touched = true;
             SetMessage("Reset to defaults. Nothing is written until you apply.", MessageType.Info);
         }
 
@@ -834,6 +1157,29 @@ namespace ImplicitSave.Editor
             Select(_selectedType);
             Refresh();
             SetMessage("File deleted.", MessageType.Info);
+        }
+
+        /// <summary>
+        /// Whether a type is actually in the current list. <see cref="FindEntry"/> cannot answer
+        /// this - it invents an entry for anything it does not find, so the detail pane can show a
+        /// save that has no file yet.
+        /// </summary>
+        private bool IsListed(Type type)
+        {
+            if (type == null)
+            {
+                return false;
+            }
+
+            foreach (var entry in _entries)
+            {
+                if (entry.Type == type)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private SaveEntry FindEntry(Type type)

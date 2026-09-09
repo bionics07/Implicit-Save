@@ -23,6 +23,12 @@ namespace ImplicitSave.Serialization
         /// <summary>Field name of the payload.</summary>
         public const string DataKey = "data";
 
+        /// <summary>
+        /// The one field in the envelope that changes on its own. Named here because the dirty
+        /// check has to leave it out - see <c>DirtyTracker.ComputeContentHash</c>.
+        /// </summary>
+        public const string SavedAtKey = "$savedAt";
+
         /// <summary>Stable identity of the save this file holds.</summary>
         [JsonProperty(SaveIdKey, Order = -4)]
         public string SaveId { get; set; }

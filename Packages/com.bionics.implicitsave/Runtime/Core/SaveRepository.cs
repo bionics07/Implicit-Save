@@ -233,7 +233,7 @@ namespace ImplicitSave
                     _storage.Write(profileId, saveId, bytes);
                 }
 
-                _dirtyTracker.Record(type, profileId, DirtyTracker.ComputeHash(bytes));
+                _dirtyTracker.Record(type, profileId, DirtyTracker.ComputeContentHash(bytes));
                 instance.IsDirty = false;
                 ImplicitSaveLog.Info($"Wrote '{saveId}' of profile {profileId} ({bytes.Length} bytes).");
                 Saved?.Invoke(type, profileId);
@@ -261,7 +261,7 @@ namespace ImplicitSave
                 return true;
             }
 
-            return !_dirtyTracker.IsUnchanged(type, profileId, DirtyTracker.ComputeHash(bytes));
+            return !_dirtyTracker.IsUnchanged(type, profileId, DirtyTracker.ComputeContentHash(bytes));
         }
 
         private SaveData Load(Type type, int profileId)

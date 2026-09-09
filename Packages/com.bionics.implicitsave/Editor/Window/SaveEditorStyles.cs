@@ -80,6 +80,9 @@ namespace ImplicitSave.Editor
         internal static GUIStyle BannerText;
         internal static GUIStyle Footnote;
 
+        /// <summary>The asterisk marking a field edited but not yet applied.</summary>
+        internal static GUIStyle ChangeMark;
+
         private static Texture2D _pill;
 
         /// <summary>Builds the styles once, and again when the user switches skin.</summary>
@@ -220,6 +223,14 @@ namespace ImplicitSave.Editor
 
             Footnote = new GUIStyle(EditorStyles.miniLabel);
             Footnote.normal.textColor = TextDim;
+
+            // Amber, the same colour the header uses for unapplied changes. One meaning per colour.
+            ChangeMark = new GUIStyle(EditorStyles.boldLabel)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                padding = new RectOffset(0, 0, 0, 0)
+            };
+            ChangeMark.normal.textColor = WarningText;
         }
 
         /// <summary>Colour and caption for a save's state, or <see cref="BadgeKind.None"/>.</summary>

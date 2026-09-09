@@ -69,6 +69,7 @@ namespace ImplicitSave.Editor
             ValidateIdentity(saveType, issues);
             ValidateMembers(saveType, issues);
             ValidateNestingDepth(saveType, issues);
+            ValidateSubtypes(saveType, issues);
 
             return issues;
         }
@@ -157,6 +158,92 @@ namespace ImplicitSave.Editor
         }
 
         /// <summary>
+        /// Checks that everything a <c>[SerializeReference]</c> field could hold can actually be
+        /// written to a file.
+        /// </summary>
+        /// <remarks>
+        /// A by-reference field keeps the concrete subtype, so the file has to record which one it
+        /// was - and the only thing recorded is the <see cref="SaveTypeAttribute"/> id. A subtype
+        /// without one is therefore a save that throws the first time a player happens to equip that
+        /// weapon. That is a bug the author will not hit themselves until late, so it is worth
+        /// finding at compile time.
+        /// </remarks>
+        private static void ValidateSubtypes(Type saveType, List<ValidationIssue> issues)
+        {
+            var visited = new HashSet<Type> { saveType };
+            var pending = new Queue<Type>();
+            pending.Enqueue(saveType);
+
+            while (pending.Count > 0)
+            {
+                foreach (var field in UnitySerializationRules.GetSerializedFields(pending.Dequeue()))
+                {
+                    if (!Attribute.IsDefined(field, typeof(SerializeReference), inherit: false))
+                    {
+                        continue;
+                    }
+
+                    var declared = GetElementType(field.FieldType);
+
+                    if (declared == null || IsLeaf(declared))
+                    {
+                        continue;
+                    }
+
+                    foreach (var candidate in Implementations(declared))
+                    {
+                        ValidateSubtype(saveType, field.Name, candidate, issues);
+
+                        // A subtype can hold by-reference fields of its own, and those subtypes need
+                        // ids just as much.
+                        if (visited.Add(candidate))
+                        {
+                            pending.Enqueue(candidate);
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>Every concrete type in the project that could be stored in this field.</summary>
+        private static IEnumerable<Type> Implementations(Type declared)
+        {
+            foreach (var type in TypeCache.GetTypesDerivedFrom(declared))
+            {
+                if (!type.IsAbstract && !type.IsInterface && !type.IsGenericTypeDefinition)
+                {
+                    yield return type;
+                }
+            }
+
+            // A non-abstract base is storable in its own right, so it needs an id too.
+            if (!declared.IsAbstract && !declared.IsInterface)
+            {
+                yield return declared;
+            }
+        }
+
+        private static void ValidateSubtype(Type saveType, string fieldName, Type subtype, List<ValidationIssue> issues)
+        {
+            var attribute = (SaveTypeAttribute)Attribute.GetCustomAttribute(subtype, typeof(SaveTypeAttribute), inherit: false);
+
+            if (attribute == null)
+            {
+                issues.Add(new ValidationIssue(saveType, fieldName, ValidationSeverity.Error,
+                    $"could hold a '{subtype.Name}', which has no [SaveType]. Saving one would fail, because " +
+                    "there would be nothing to write into the file to say which type it was. Add " +
+                    $"[SaveType(\"{SaveIdResolver.ToSnakeCase(subtype.Name)}\")] to it."));
+                return;
+            }
+
+            if (!SaveIdResolver.IsValidId(attribute.Id, out var reason))
+            {
+                issues.Add(new ValidationIssue(saveType, fieldName, ValidationSeverity.Error,
+                    $"could hold a '{subtype.Name}', whose [SaveType] id {reason}"));
+            }
+        }
+
+        /// <summary>
         /// Walks the nested plain classes and reports anything past Unity's depth limit. Unity
         /// truncates there without a word, which is the reason this check exists at all.
         /// </summary>
@@ -240,7 +327,20 @@ namespace ImplicitSave.Editor
         {
             // Finding out at compile time is the whole point - a warning that only appears when the
             // user goes looking is a warning nobody reads.
-            var issues = ValidateAll();
+            var issues = new List<ValidationIssue>();
+
+            foreach (var issue in ValidateAll())
+            {
+                // Test assemblies are skipped HERE and nowhere else. A test suite is where a save
+                // type is deliberately made wrong so the validator can be tested on it, and a fixture
+                // that exists to be invalid should not put an error in the console on every single
+                // recompile. Tools > ImplicitSave > Validate Save Types still reports everything.
+                if (SaveTypeDiscovery.IsInPlayerAssembly(issue.SaveType))
+                {
+                    issues.Add(issue);
+                }
+            }
+
             if (issues.Count > 0)
             {
                 ReportToConsole(issues);

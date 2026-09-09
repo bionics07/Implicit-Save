@@ -112,13 +112,62 @@ namespace ImplicitSave.Serialization
                 return false;
             }
 
-            if (!IsSerializableType(field.FieldType, out var typeReason))
+            // [SerializeReference] changes what the type rules allow, so it has to be read here and
+            // carried down rather than checked at the leaf.
+            var byReference = IsDefined(field, typeof(SerializeReference));
+
+            if (!IsSerializableType(field.FieldType, allowContainer: true, byReference: byReference, reason: out var typeReason))
             {
                 reason = typeReason;
                 return false;
             }
 
             reason = null;
+            return true;
+        }
+
+        /// <summary>An array or List, the only two collections Unity serializes.</summary>
+        private static bool IsUnityContainer(Type type)
+        {
+            return type != null
+                   && (type.IsArray || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>)));
+        }
+
+        /// <summary>The leaf rules for a <c>[SerializeReference]</c> value.</summary>
+        private static bool IsByReferenceType(Type type, out string reason)
+        {
+            reason = null;
+
+            if (type == null)
+            {
+                reason = "the type is unknown";
+                return false;
+            }
+
+            if (typeof(UnityEngine.Object).IsAssignableFrom(type))
+            {
+                reason = "a UnityEngine.Object reference cannot be written to a save file";
+                return false;
+            }
+
+            if (type.IsInterface)
+            {
+                return true;
+            }
+
+            if (type.IsValueType || type == typeof(string))
+            {
+                reason = $"[SerializeReference] stores classes and interfaces, and '{type.Name}' is neither - " +
+                         "drop the attribute and Unity will serialize it normally";
+                return false;
+            }
+
+            if (IsPlainDictionary(type))
+            {
+                reason = "Unity does not serialize Dictionary - use SerializableDictionary instead";
+                return false;
+            }
+
             return true;
         }
 
@@ -133,12 +182,35 @@ namespace ImplicitSave.Serialization
         /// </summary>
         public static bool IsSerializableType(Type type, out string reason)
         {
-            return IsSerializableType(type, allowContainer: true, reason: out reason);
+            return IsSerializableType(type, allowContainer: true, byReference: false, reason: out reason);
         }
 
-        private static bool IsSerializableType(Type type, bool allowContainer, out string reason)
+        /// <summary>
+        /// Whether Unity can persist a value of this type when the field carries
+        /// <c>[SerializeReference]</c>.
+        /// </summary>
+        /// <remarks>
+        /// The attribute is not decoration: it switches Unity to storing the value BY REFERENCE, and
+        /// the rules genuinely differ. An abstract class or an interface becomes legal - which is the
+        /// whole point, since that is the only way to store "some kind of weapon" - and the type no
+        /// longer has to carry <c>[Serializable]</c>. What it cannot do is store a value type: there
+        /// is no reference to keep.
+        /// </remarks>
+        public static bool IsSerializableByReference(Type type, out string reason)
+        {
+            return IsSerializableType(type, allowContainer: true, byReference: true, reason: out reason);
+        }
+
+        private static bool IsSerializableType(Type type, bool allowContainer, bool byReference, out string reason)
         {
             reason = null;
+
+            // Containers keep their own rules - a List is still a List - so only the ELEMENT is
+            // reached by reference. Everything below this point is the leaf.
+            if (byReference && !IsUnityContainer(type))
+            {
+                return IsByReferenceType(type, out reason);
+            }
 
             if (type == null)
             {
@@ -189,7 +261,7 @@ namespace ImplicitSave.Serialization
                     return false;
                 }
 
-                return IsSerializableType(type.GetElementType(), allowContainer: false, reason: out reason);
+                return IsSerializableType(type.GetElementType(), allowContainer: false, byReference, out reason);
             }
 
             if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
@@ -200,7 +272,7 @@ namespace ImplicitSave.Serialization
                     return false;
                 }
 
-                return IsSerializableType(type.GetGenericArguments()[0], allowContainer: false, reason: out reason);
+                return IsSerializableType(type.GetGenericArguments()[0], allowContainer: false, byReference, out reason);
             }
 
             if (IsPlainDictionary(type))

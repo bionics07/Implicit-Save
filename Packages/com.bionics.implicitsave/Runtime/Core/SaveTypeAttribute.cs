@@ -23,9 +23,32 @@ namespace ImplicitSave
         /// <summary>The value written as <c>$t</c>.</summary>
         public string Id { get; }
 
+        /// <summary>
+        /// Ids this type used to be written under. Saves holding any of them still load; new saves
+        /// are written under <see cref="Id"/>.
+        /// </summary>
+        /// <remarks>
+        /// Changing an id is normally a promise broken - every save already on disk names the old
+        /// one. This is how to change it anyway, and the reason it is a separate list rather than a
+        /// quiet fallback is that only you can know which old id meant THIS type. Nothing can infer
+        /// that safely: guessing would put one subtype's data into another and report success.
+        /// <para>
+        /// Each save read under an old id is rewritten under the new one the next time the game
+        /// saves, so the list only has to stay as long as players might still hold an old file.
+        /// </para>
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// [SaveType("meteor", PreviousIds = new[] { "fireball" })]
+        /// public class MeteorAbility : Ability { }
+        /// </code>
+        /// </example>
+        public string[] PreviousIds { get; set; }
+
         /// <param name="id">
-        /// Stable identity for this subtype. Choose it once and never change it - changing it
-        /// orphans every save that already holds this subtype.
+        /// Stable identity for this subtype. Prefer to choose it once and leave it alone; if you do
+        /// have to change it, move the old value into <see cref="PreviousIds"/> so existing saves
+        /// keep loading.
         /// </param>
         public SaveTypeAttribute(string id)
         {

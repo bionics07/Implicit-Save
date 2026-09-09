@@ -68,6 +68,12 @@ namespace ImplicitSave.Serialization
             if (resolver != null)
             {
                 settings.ContractResolver = resolver;
+
+                // Only the payload gets this. The resolver puts it on each ambiguous field, which is
+                // what makes a $t appear at all; having it in the list as well covers the calls that
+                // start from a declared type directly - a dictionary's value type, say - where there
+                // is no property to hang it on.
+                settings.Converters.Add(PolymorphicConverter.Shared);
             }
 
             return settings;

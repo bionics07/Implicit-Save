@@ -21,10 +21,128 @@ namespace ImplicitSave
     {
         private readonly Dictionary<Key, ulong> _lastWritten = new Dictionary<Key, ulong>();
 
-        /// <summary>Hash of a save's serialized bytes.</summary>
+        /// <summary>Hash of a save's serialized bytes, exactly as they are.</summary>
         public static ulong ComputeHash(byte[] content)
         {
             return XxHash64.Compute(content);
+        }
+
+        /// <summary>
+        /// Hash of what a save CONTAINS, ignoring the moment it was serialized.
+        /// </summary>
+        /// <remarks>
+        /// This exists because hashing the file as written made dirty tracking useless. The envelope
+        /// carries <c>$savedAt</c>, stamped from the clock every time the save is serialized, so two
+        /// passes over an untouched object produced different bytes and every autosave tick wrote to
+        /// disk - which is the exact opposite of the feature.
+        /// <para>
+        /// It hid well: the timestamp has one-second resolution, so a test suite running in
+        /// milliseconds always saw the same value and passed. It takes a human clicking twice, a
+        /// second apart, to see it.
+        /// </para>
+        /// <para>
+        /// The value is blanked rather than removed so every other byte keeps its position, and the
+        /// search is by key rather than by offset so the envelope's field order stays free to change.
+        /// A payload with no such field hashes whole, which is simply the old behaviour.
+        /// </para>
+        /// </remarks>
+        public static ulong ComputeContentHash(byte[] content)
+        {
+            if (content == null)
+            {
+                return 0;
+            }
+
+            var start = FindTimestampValue(content, out var length);
+
+            if (start < 0)
+            {
+                return XxHash64.Compute(content);
+            }
+
+            var stable = (byte[])content.Clone();
+
+            for (var i = start; i < start + length; i++)
+            {
+                stable[i] = (byte)'0';
+            }
+
+            return XxHash64.Compute(stable);
+        }
+
+        /// <summary>
+        /// Locates the characters between the quotes of the <c>$savedAt</c> value.
+        /// </summary>
+        /// <returns>Where the value starts, or -1 when the field is not there.</returns>
+        private static int FindTimestampValue(byte[] content, out int length)
+        {
+            length = 0;
+
+            var key = System.Text.Encoding.UTF8.GetBytes(Serialization.SaveEnvelope.SavedAtKey);
+            var keyAt = IndexOf(content, key);
+
+            if (keyAt < 0)
+            {
+                return -1;
+            }
+
+            // Past the key, its closing quote and the colon, to the quote that opens the value.
+            var cursor = keyAt + key.Length;
+
+            while (cursor < content.Length && content[cursor] != (byte)':')
+            {
+                cursor++;
+            }
+
+            while (cursor < content.Length && content[cursor] != (byte)'"')
+            {
+                cursor++;
+            }
+
+            if (cursor >= content.Length)
+            {
+                return -1;
+            }
+
+            var valueStart = cursor + 1;
+            var valueEnd = valueStart;
+
+            while (valueEnd < content.Length && content[valueEnd] != (byte)'"')
+            {
+                valueEnd++;
+            }
+
+            if (valueEnd >= content.Length)
+            {
+                return -1;
+            }
+
+            length = valueEnd - valueStart;
+            return valueStart;
+        }
+
+        private static int IndexOf(byte[] haystack, byte[] needle)
+        {
+            for (var i = 0; i <= haystack.Length - needle.Length; i++)
+            {
+                var found = true;
+
+                for (var j = 0; j < needle.Length; j++)
+                {
+                    if (haystack[i + j] != needle[j])
+                    {
+                        found = false;
+                        break;
+                    }
+                }
+
+                if (found)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
         }
 
         /// <summary>

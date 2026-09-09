@@ -68,6 +68,14 @@ namespace ImplicitSave
             new Dictionary<string, SaveTypeEntry>(StringComparer.Ordinal);
 
         private static readonly Dictionary<Type, string> IdByType = new Dictionary<Type, string>();
+
+        /// <summary>
+        /// Ids a type used to be written under. Read-only: a lookup falls back here, but nothing is
+        /// ever WRITTEN under an old id, so every save that passes through the game migrates itself
+        /// forward.
+        /// </summary>
+        private static readonly Dictionary<string, Type> TypeByPreviousId =
+            new Dictionary<string, Type>(StringComparer.Ordinal);
         private static readonly List<SaveTypeEntry> Entries = new List<SaveTypeEntry>();
         private static readonly List<ISaveMigration> Migrations = new List<ISaveMigration>();
         private static readonly HashSet<Type> MigrationTypes = new HashSet<Type>();
@@ -95,6 +103,7 @@ namespace ImplicitSave
             Entries.Clear();
             Migrations.Clear();
             MigrationTypes.Clear();
+            TypeByPreviousId.Clear();
             _discoveryRan = false;
         }
 
@@ -128,6 +137,42 @@ namespace ImplicitSave
         public static void RegisterSubtype(string typeId, Type type, Func<object> factory)
         {
             Add(new SaveTypeEntry(typeId, type, isSubtype: true, SaveTypeOrigin.GeneratedRegistry, factory));
+        }
+
+        /// <summary>
+        /// Registers an id this type used to be written under, so old saves still resolve.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately one-way. The type still reports its current id, so anything read under
+        /// <paramref name="previousId"/> is written back under the new one - the file heals itself
+        /// the first time the game saves, and the alias eventually stops being reachable.
+        /// </remarks>
+        public static void RegisterPreviousId(string previousId, Type type)
+        {
+            if (string.IsNullOrEmpty(previousId) || type == null)
+            {
+                return;
+            }
+
+            if (ById.TryGetValue(previousId, out var live))
+            {
+                // Another type is answering to this id right now. Honouring the alias would hand one
+                // type's saves to another, which is worse than the rename it was meant to fix.
+                ImplicitSaveLog.Error(
+                    $"'{type.FullName}' lists '{previousId}' as a previous id, but '{live.Type.FullName}' uses " +
+                    "that id today. Ignoring it - the live type wins.");
+                return;
+            }
+
+            if (TypeByPreviousId.TryGetValue(previousId, out var other) && other != type)
+            {
+                ImplicitSaveLog.Error(
+                    $"Both '{other.FullName}' and '{type.FullName}' claim '{previousId}' as a previous id. " +
+                    "Only one of them can have been it; keeping the first.");
+                return;
+            }
+
+            TypeByPreviousId[previousId] = type;
         }
 
         /// <summary>
@@ -190,8 +235,15 @@ namespace ImplicitSave
                 return true;
             }
 
-            type = null;
-            return false;
+            // Only after the live ids: a current id must never be shadowed by someone's old one.
+            return TypeByPreviousId.TryGetValue(id, out type);
+        }
+
+        /// <summary>Whether this id is one a type used to be written under, rather than its id today.</summary>
+        public static bool IsPreviousId(string id)
+        {
+            EnsureDiscovered();
+            return !ById.ContainsKey(id) && TypeByPreviousId.ContainsKey(id);
         }
 
         /// <summary>Finds the id a type is registered under.</summary>
@@ -206,7 +258,18 @@ namespace ImplicitSave
         public static object Create(string id)
         {
             EnsureDiscovered();
-            return ById.TryGetValue(id, out var entry) ? entry.Factory?.Invoke() : null;
+
+            if (ById.TryGetValue(id, out var entry))
+            {
+                return entry.Factory?.Invoke();
+            }
+
+            // An old id still creates the type it became, so a save written before a rename can be
+            // read back without the caller knowing a rename happened.
+            return TypeByPreviousId.TryGetValue(id, out var renamed) && IdByType.TryGetValue(renamed, out var current)
+                   && ById.TryGetValue(current, out var target)
+                ? target.Factory?.Invoke()
+                : null;
         }
 
         /// <summary>Every registered save root, for wiping a profile or listing what a game stores.</summary>

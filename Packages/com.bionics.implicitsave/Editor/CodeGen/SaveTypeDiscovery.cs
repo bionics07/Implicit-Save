@@ -105,6 +105,11 @@ namespace ImplicitSave.Editor
                 SaveTypeRegistry.Add(new SaveTypeEntry(
                     ResolveSubtypeId(type), type, isSubtype: true, SaveTypeOrigin.EditorScan,
                     () => Activator.CreateInstance(captured)));
+
+                foreach (var previous in ResolvePreviousIds(type))
+                {
+                    SaveTypeRegistry.RegisterPreviousId(previous, type);
+                }
             }
 
             foreach (var type in FindMigrations())
@@ -124,6 +129,29 @@ namespace ImplicitSave.Editor
         {
             var attribute = (SaveIdAttribute)Attribute.GetCustomAttribute(type, typeof(SaveIdAttribute), false);
             return attribute != null ? attribute.Id : SaveIdResolver.ToSnakeCase(type.Name);
+        }
+
+        /// <summary>Ids this subtype used to be written under, in declaration order.</summary>
+        public static IReadOnlyList<string> ResolvePreviousIds(Type type)
+        {
+            var attribute = (SaveTypeAttribute)Attribute.GetCustomAttribute(type, typeof(SaveTypeAttribute), false);
+
+            if (attribute == null || attribute.PreviousIds == null)
+            {
+                return Array.Empty<string>();
+            }
+
+            var ids = new List<string>();
+
+            foreach (var id in attribute.PreviousIds)
+            {
+                if (!string.IsNullOrEmpty(id) && !string.Equals(id, attribute.Id, StringComparison.Ordinal))
+                {
+                    ids.Add(id);
+                }
+            }
+
+            return ids;
         }
 
         /// <summary>The <c>$t</c> value a subtype will be stored under.</summary>
@@ -260,6 +288,23 @@ namespace ImplicitSave.Editor
             return new AssemblyInfo(isPredefined: false, isTestAssembly: isTest, autoReferenced: autoReferenced);
         }
 
+        private static ICollection<Type> _excluded;
+
+        /// <summary>
+        /// Hides types from every lookup below, for the moment between "this script is about to be
+        /// deleted" and the deletion actually happening.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="TypeCache"/> still reports a type whose file is on its way out, because the
+        /// assemblies have not been rebuilt yet. Regenerating the registry in that window would
+        /// write the doomed type straight back in, which is the opposite of the point. Pass
+        /// <c>null</c> to clear.
+        /// </remarks>
+        internal static void Exclude(ICollection<Type> types)
+        {
+            _excluded = types != null && types.Count > 0 ? types : null;
+        }
+
         private static IReadOnlyList<Type> Collect(IEnumerable<Type> candidates, bool buildableOnly)
         {
             var types = new List<Type>();
@@ -274,6 +319,11 @@ namespace ImplicitSave.Editor
                 }
 
                 if (buildableOnly && !IsInPlayerAssembly(type))
+                {
+                    continue;
+                }
+
+                if (_excluded != null && _excluded.Contains(type))
                 {
                     continue;
                 }

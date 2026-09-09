@@ -52,7 +52,66 @@ namespace ImplicitSave.Serialization
                 property.Writable = true;
             }
 
+            AttachPolymorphicConverter(property, member);
+
             return property;
+        }
+
+        /// <summary>
+        /// Puts the <c>$t</c> converter on fields whose declared type cannot say what it is holding.
+        /// </summary>
+        /// <remarks>
+        /// This has to happen here, on the property, rather than as a plain converter in the
+        /// serializer's list. When Newtonsoft writes a value it picks the converter by the value's
+        /// CONCRETE type, so a <c>Weapon</c> field holding a <c>MeleeWeapon</c> would be matched
+        /// against <c>MeleeWeapon</c> - which is a perfectly ordinary serializable class, so no
+        /// converter would fire and no discriminator would be written. The file would then load back
+        /// as nothing at all.
+        /// <para>
+        /// The resolver is the one place that still knows the DECLARED type, which is exactly the
+        /// information the reader will have and the writer must therefore preserve.
+        /// </para>
+        /// </remarks>
+        private static void AttachPolymorphicConverter(JsonProperty property, MemberInfo member)
+        {
+            var type = property.PropertyType;
+
+            // [SerializeReference] is the trigger, not abstractness. It is the declaration that says
+            // this field may hold a subtype, and Unity keeps the subtype for any such field - even
+            // one declared as a concrete class. Matching that exactly is the point: the window and
+            // the file must not disagree about what is stored.
+            if (type == null || !Attribute.IsDefined(member, typeof(UnityEngine.SerializeReference)))
+            {
+                return;
+            }
+
+            // A List<Weapon> or Weapon[] is an ordinary list of ambiguous items, so the tag belongs
+            // on the items and not on the list.
+            var element = GetElementType(type);
+
+            if (element != null)
+            {
+                property.ItemConverter = PolymorphicConverter.Shared;
+                return;
+            }
+
+            property.Converter = PolymorphicConverter.Shared;
+        }
+
+        /// <summary>The item type of an array or <c>List&lt;T&gt;</c>, or null if it is neither.</summary>
+        private static Type GetElementType(Type type)
+        {
+            if (type.IsArray)
+            {
+                return type.GetElementType();
+            }
+
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
+            {
+                return type.GetGenericArguments()[0];
+            }
+
+            return null;
         }
 
         /// <inheritdoc />

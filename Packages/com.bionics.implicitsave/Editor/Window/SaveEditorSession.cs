@@ -67,6 +67,19 @@ namespace ImplicitSave.Editor
         /// <summary>Schema version the class declares.</summary>
         public readonly int ClassVersion;
 
+        /// <summary>
+        /// What to call this save on screen: the class name, which is the name the author actually
+        /// wrote and recognises.
+        /// </summary>
+        /// <remarks>
+        /// The id is the FILE name, and the two deliberately drift apart - renaming the class must
+        /// not rename the file, or every existing save would be orphaned. Showing the id in the list
+        /// made that mismatch the first thing you saw and the class name something you had to go
+        /// find. The tooltip carries the id, because the moment it matters is the moment you go
+        /// looking for the file on disk.
+        /// </remarks>
+        public string DisplayName => FriendlyName(Type) ?? SaveId;
+
         internal SaveEntry(Type type, string saveId, SaveFileState state, int fileVersion, int classVersion)
         {
             Type = type;
@@ -74,6 +87,28 @@ namespace ImplicitSave.Editor
             State = state;
             FileVersion = fileVersion;
             ClassVersion = classVersion;
+        }
+
+        /// <summary>
+        /// The class name without the <c>SaveData</c> suffix, which every save class carries and
+        /// none of them is distinguished by.
+        /// </summary>
+        /// <returns>The trimmed name, or <c>null</c> if there is no type to name.</returns>
+        internal static string FriendlyName(Type type)
+        {
+            if (type == null)
+            {
+                return null;
+            }
+
+            const string suffix = nameof(SaveData);
+            var name = type.Name;
+
+            // A class called exactly "SaveData" would be left with nothing, so the trim only applies
+            // when something survives it.
+            return name.Length > suffix.Length && name.EndsWith(suffix, StringComparison.Ordinal)
+                ? name.Substring(0, name.Length - suffix.Length)
+                : name;
         }
     }
 
@@ -471,10 +506,83 @@ namespace ImplicitSave.Editor
             _storage.Write(profileId, saveId, _serializer.Serialize(data, saveId));
         }
 
+        /// <summary>
+        /// An independent copy of a save, for comparing against what was loaded.
+        /// </summary>
+        /// <remarks>
+        /// Round-trips through the serializer rather than copying fields, so the copy is exactly what
+        /// the file would hold - the same rules, the same converters. A save the serializer cannot
+        /// handle yields <c>null</c> instead of throwing, because this only feeds a visual marker and
+        /// losing the marker is better than losing the window.
+        /// </remarks>
+        public SaveData Clone(SaveData data)
+        {
+            if (data == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                var type = data.GetType();
+                var saveId = SaveTypeDiscovery.ResolveSaveId(type);
+                return _serializer.Deserialize(_serializer.Serialize(data, saveId), type);
+            }
+            catch (SaveException)
+            {
+                return null;
+            }
+        }
+
         /// <summary>Deletes a save file and its backup.</summary>
         public void Delete(Type type, int profileId)
         {
             _storage.Delete(profileId, SaveTypeDiscovery.ResolveSaveId(type));
+        }
+
+        /// <summary>Deletes a save file by its id, for files no class claims any more.</summary>
+        public void DeleteById(int profileId, string saveId)
+        {
+            _storage.Delete(profileId, saveId);
+        }
+
+        /// <summary>
+        /// Save files in this slot that no class answers for.
+        /// </summary>
+        /// <remarks>
+        /// The id in <see cref="SaveIdAttribute"/> is the FILE NAME, so changing it does not rename
+        /// anything - the game simply starts looking for a file that does not exist yet, and the old
+        /// one stays on disk forever. Deleting the class does the same.
+        /// <para>
+        /// Nothing can tell whether that was a rename or a removal, and guessing would be worse than
+        /// useless. What it can do is stop the file being invisible: an orphan you can see is one you
+        /// can decide about, and until this listed them the editor offered no way to even know they
+        /// were there.
+        /// </para>
+        /// </remarks>
+        public IReadOnlyList<string> ListOrphanSaves(int profileId)
+        {
+            var claimed = new HashSet<string>(StringComparer.Ordinal);
+
+            // Every id any class could answer to, whether or not it ships in a build - an
+            // editor-only save type is still not an orphan.
+            foreach (var type in SaveTypeDiscovery.FindSaveTypes())
+            {
+                claimed.Add(SaveTypeDiscovery.ResolveSaveId(type));
+            }
+
+            var orphans = new List<string>();
+
+            foreach (var id in _storage.ListSaveIds(profileId))
+            {
+                if (!claimed.Contains(id))
+                {
+                    orphans.Add(id);
+                }
+            }
+
+            orphans.Sort(StringComparer.Ordinal);
+            return orphans;
         }
 
         /// <summary>The file's contents as text, for export or for showing the raw JSON.</summary>

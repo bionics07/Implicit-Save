@@ -102,6 +102,28 @@ namespace ImplicitSave.Tests.EditorTests
             Assert.That(types, Has.No.Member(typeof(SaveData)), "The abstract base is not a save type.");
         }
 
+        [Test]
+        public void SubtypeWithoutAnId_IsReportedAgainstTheFieldThatCouldHoldIt()
+        {
+            var issue = FindIssue(typeof(ProbeLoadoutSaveData), nameof(ProbeLoadoutSaveData.Equipped));
+
+            Assert.That(issue, Is.Not.Null, "a subtype with no [SaveType] cannot be written to a file");
+            Assert.That(issue.Value.Severity, Is.EqualTo(ValidationSeverity.Error));
+            Assert.That(issue.Value.Message, Does.Contain(nameof(ProbeUntagged)));
+
+            // The message has to carry the fix, not just the diagnosis.
+            Assert.That(issue.Value.Message, Does.Contain("[SaveType(\"probe_untagged\")]"));
+        }
+
+        [Test]
+        public void SubtypeWithAnId_IsNotReported()
+        {
+            foreach (var issue in SaveDataValidator.Validate(typeof(ProbeLoadoutSaveData)))
+            {
+                Assert.That(issue.Message, Does.Not.Contain(nameof(ProbeTagged)));
+            }
+        }
+
         private static ValidationIssue? FindIssue(Type saveType, string memberName)
         {
             foreach (var issue in SaveDataValidator.Validate(saveType))
