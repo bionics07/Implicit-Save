@@ -44,6 +44,11 @@ namespace ImplicitSave.Tests.EditorTests
             yield return typeof(InventorySaveData);
             yield return typeof(HookSaveData);
             yield return typeof(VersionedSaveData);
+
+            // Every Unity built-in struct at once. These carry no [Serializable], so the rules used
+            // to reject all of them and a save silently lost its positions and colours - the exact
+            // divergence this test exists to catch.
+            yield return typeof(BuiltInStructsSaveData);
         }
 
         [Test]

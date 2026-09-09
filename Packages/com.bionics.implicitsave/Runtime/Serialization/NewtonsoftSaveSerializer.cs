@@ -65,6 +65,10 @@ namespace ImplicitSave.Serialization
 
             settings.Converters.Add(new SerializableDictionaryConverter());
 
+            // Unity's built-in structs whose state is private. Without this they would serialize as
+            // empty objects, which reads as "the field was saved" and is not.
+            settings.Converters.Add(new UnityStructConverter());
+
             if (resolver != null)
             {
                 settings.ContractResolver = resolver;

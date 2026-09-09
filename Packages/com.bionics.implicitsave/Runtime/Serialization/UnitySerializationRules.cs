@@ -126,6 +126,74 @@ namespace ImplicitSave.Serialization
             return true;
         }
 
+        /// <summary>
+        /// The structs Unity serializes in native code, without carrying <c>[Serializable]</c>.
+        /// </summary>
+        /// <remarks>
+        /// Asking for the attribute is how this package decides what Unity will keep - and for these
+        /// types the attribute is simply not there. Unity's serializer knows them by name, from C++,
+        /// so <c>Attribute.IsDefined(typeof(Vector3), ...)</c> is <c>false</c> while the Inspector
+        /// shows the field and saves it.
+        /// <para>
+        /// Getting this wrong is expensive and quiet: without the list, a save holding a position or
+        /// a colour shows the value in the editor window and writes a file that does not contain the
+        /// field at all. The window and the disk telling different stories is the failure this whole
+        /// contract exists to prevent, and it went unnoticed until warnings were read rather than
+        /// errors.
+        /// </para>
+        /// <para>
+        /// A list, not a namespace check: <c>UnityEngine</c> is full of types that must NOT be
+        /// storable, and every entry here was confirmed against Unity's own serializer rather than
+        /// assumed.
+        /// </para>
+        /// </remarks>
+        internal static bool IsBuiltInStruct(Type type)
+        {
+            return BuiltInStructs.Contains(type);
+        }
+
+        private static readonly HashSet<Type> BuiltInStructs = new HashSet<Type>
+        {
+            typeof(UnityEngine.Vector2),
+            typeof(UnityEngine.Vector3),
+            typeof(UnityEngine.Vector4),
+            typeof(UnityEngine.Vector2Int),
+            typeof(UnityEngine.Vector3Int),
+            typeof(UnityEngine.Quaternion),
+            typeof(UnityEngine.Color),
+            typeof(UnityEngine.Color32),
+            typeof(UnityEngine.Rect),
+            typeof(UnityEngine.RectInt),
+            typeof(UnityEngine.Bounds),
+            typeof(UnityEngine.BoundsInt),
+            typeof(UnityEngine.LayerMask),
+            typeof(UnityEngine.Matrix4x4),
+            typeof(UnityEngine.Hash128)
+        };
+
+        /// <summary>
+        /// Unity types this package deliberately does not store, and what to do instead.
+        /// </summary>
+        /// <remarks>
+        /// Unity serializes these, so "it has no [Serializable]" would read as a mistake on their
+        /// part rather than a decision on ours. They are authored content - a curve or a gradient is
+        /// something a designer draws, not something a player accumulates - so the useful answer is
+        /// to keep them on an asset and save a reference to it.
+        /// </remarks>
+        private static readonly Dictionary<Type, string> Unsupported = new Dictionary<Type, string>
+        {
+            {
+                typeof(UnityEngine.AnimationCurve),
+                "Unity serializes AnimationCurve, but ImplicitSave does not store it - a curve is authored " +
+                "content, not player progress. Keep it on a ScriptableObject and save an id that points at it"
+            },
+            {
+                typeof(UnityEngine.Gradient),
+                "Unity serializes Gradient, but ImplicitSave does not store it - a gradient is authored " +
+                "content, not player progress. Keep it on a ScriptableObject and save an id that points at it"
+            }
+        };
+
         /// <summary>An array or List, the only two collections Unity serializes.</summary>
         private static bool IsUnityContainer(Type type)
         {
@@ -290,6 +358,17 @@ namespace ImplicitSave.Serialization
             if (type.IsAbstract)
             {
                 reason = "Unity cannot create an abstract type";
+                return false;
+            }
+
+            if (IsBuiltInStruct(type))
+            {
+                return true;
+            }
+
+            if (Unsupported.TryGetValue(type, out var unsupported))
+            {
+                reason = unsupported;
                 return false;
             }
 
