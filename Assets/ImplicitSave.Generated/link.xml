@@ -6,6 +6,12 @@
 -->
 <linker>
   <assembly fullname="Assembly-CSharp">
+    <type fullname="ComboAbility" preserve="all" />
+    <type fullname="DemoChangeNameSaveData" preserve="all" />
+    <type fullname="DemoMigration1To2" preserve="all" />
+    <type fullname="HealAbility" preserve="all" />
+    <type fullname="MetorAbility" preserve="all" />
+    <type fullname="OrphanGoldBadge" preserve="all" />
     <type fullname="OrphanSaveData" preserve="all" />
     <type fullname="SandboxSaveData" preserve="all" />
   </assembly>

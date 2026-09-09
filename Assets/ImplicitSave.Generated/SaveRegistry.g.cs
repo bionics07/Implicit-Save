@@ -21,8 +21,18 @@ namespace ImplicitSave.Generated
         internal static void Register()
         {
             // save roots
+            ImplicitSave.SaveTypeRegistry.Register("demo", typeof(global::DemoChangeNameSaveData), () => new global::DemoChangeNameSaveData());
             ImplicitSave.SaveTypeRegistry.Register("orphan", typeof(global::OrphanSaveData), () => new global::OrphanSaveData());
             ImplicitSave.SaveTypeRegistry.Register("sandbox", typeof(global::SandboxSaveData), () => new global::SandboxSaveData());
+
+            // polymorphic subtypes
+            ImplicitSave.SaveTypeRegistry.RegisterSubtype("ability_combo", typeof(global::ComboAbility), () => new global::ComboAbility());
+            ImplicitSave.SaveTypeRegistry.RegisterSubtype("ability_heal", typeof(global::HealAbility), () => new global::HealAbility());
+            ImplicitSave.SaveTypeRegistry.RegisterSubtype("ability_meteor", typeof(global::MetorAbility), () => new global::MetorAbility());
+            ImplicitSave.SaveTypeRegistry.RegisterSubtype("orphan_gold_badge", typeof(global::OrphanGoldBadge), () => new global::OrphanGoldBadge());
+
+            // migrations
+            ImplicitSave.SaveTypeRegistry.RegisterMigration(new global::DemoMigration1To2());
 
         }
     }
