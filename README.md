@@ -1,5 +1,7 @@
 # ImplicitSave — Zero-Config Save System
 
+[![Tests](https://github.com/bionics07/Implicit-Save/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/bionics07/Implicit-Save/actions/workflows/tests.yml)
+
 A save system for Unity where **declaring a class is enough**. No central ScriptableObject, no manual
 registration, no references to maintain.
 
@@ -34,7 +36,8 @@ No `AddComponent`, no dragging references, no central file to edit.
 
 ## Requirements
 
-- Unity 2021.3 or newer
+- Unity 2021.3 or newer — the full test suite runs on every push against 2021.3 LTS, 2022.3 LTS and
+  Unity 6.0 LTS
 - [`com.unity.nuget.newtonsoft-json`](https://docs.unity3d.com/Packages/com.unity.nuget.newtonsoft-json@3.2/manual/index.html) 3.2.2 (resolved automatically as a package dependency)
 
 ## Installation

@@ -42,7 +42,7 @@ jobs:
             testFramework: '1.6.0'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The host is shared by every Unity line, so the per-line bits are written here: the editor
       # version (Unity refuses a folder without ProjectVersion.txt) and the test framework version.
@@ -62,7 +62,7 @@ jobs:
               json.dump(manifest, f, indent=2)
           PY
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .ci/compat-host/Library
           key: Library-${{ matrix.unityVersion }}-${{ hashFiles('.ci/compat-host/Packages/manifest.json', 'Packages/com.bionics.implicitsave/package.json') }}
@@ -82,7 +82,7 @@ jobs:
           githubToken: ${{ secrets.GITHUB_TOKEN }}
           checkName: Test results (${{ matrix.unityVersion }})
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: test-results-${{ matrix.unityVersion }}
