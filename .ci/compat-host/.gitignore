@@ -1,0 +1,11 @@
+# Everything Unity creates when it opens this host project. Only the manifest and the seed are source.
+Library/
+Temp/
+Logs/
+UserSettings/
+ProjectSettings/
+obj/
+*.csproj
+*.sln
+*.meta
+Assets/ImplicitSave.Generated/

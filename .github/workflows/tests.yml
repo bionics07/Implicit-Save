@@ -1,0 +1,89 @@
+name: Tests
+
+# Runs the package test suite on every Unity line the package supports.
+#
+# The tests run in .ci/compat-host, a bare project that references the package by path and holds a
+# one-file seed - never in the development project at the repository root, which is on Unity 6 and
+# carries a sandbox a buyer would not have.
+
+on:
+  push:
+    branches: [main, 'step-*']
+    paths:
+      - 'Packages/com.bionics.implicitsave/**'
+      - '.ci/**'
+      - '.github/workflows/tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unity ${{ matrix.unityVersion }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Last builds available on a Personal license. Newer 2021.3 and 2022.3 builds are
+          # Extended LTS and refuse to start without Industry or Enterprise.
+          - unityVersion: 2021.3.45f2
+            testFramework: '1.1.33'
+          - unityVersion: 2022.3.62f3
+            testFramework: '1.1.33'
+          - unityVersion: 6000.0.67f1
+            testFramework: '1.6.0'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The host is shared by every Unity line, so the per-line bits are written here: the editor
+      # version (Unity refuses a folder without ProjectVersion.txt) and the test framework version.
+      - name: Pin the host project to this Unity line
+        run: |
+          python3 - "${{ matrix.unityVersion }}" "${{ matrix.testFramework }}" <<'PY'
+          import json, os, sys
+          host = ".ci/compat-host"
+          os.makedirs(os.path.join(host, "ProjectSettings"), exist_ok=True)
+          with open(os.path.join(host, "ProjectSettings", "ProjectVersion.txt"), "w", encoding="utf-8") as f:
+              f.write("m_EditorVersion: " + sys.argv[1] + "\n")
+          path = os.path.join(host, "Packages", "manifest.json")
+          with open(path, encoding="utf-8") as f:
+              manifest = json.load(f)
+          manifest["dependencies"]["com.unity.test-framework"] = sys.argv[2]
+          with open(path, "w", encoding="utf-8") as f:
+              json.dump(manifest, f, indent=2)
+          PY
+
+      - uses: actions/cache@v4
+        with:
+          path: .ci/compat-host/Library
+          key: Library-${{ matrix.unityVersion }}-${{ hashFiles('.ci/compat-host/Packages/manifest.json', 'Packages/com.bionics.implicitsave/package.json') }}
+          restore-keys: |
+            Library-${{ matrix.unityVersion }}-
+
+      - uses: game-ci/unity-test-runner@v4
+        id: tests
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: .ci/compat-host
+          unityVersion: ${{ matrix.unityVersion }}
+          testMode: all
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          checkName: Test results (${{ matrix.unityVersion }})
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.unityVersion }}
+          path: ${{ steps.tests.outputs.artifactsPath }}
