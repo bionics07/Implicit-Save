@@ -249,7 +249,12 @@ namespace ImplicitSave.Editor
         /// <summary>
         /// Draws a badge. A word carries its meaning without anyone learning a glyph first.
         /// </summary>
-        internal static void DrawBadge(Rect rect, BadgeKind kind, string tooltip)
+        /// <param name="onSelection">
+        /// Whether the badge sits on a selected row. The selection bar is a strong colour of its
+        /// own, so the calibrated text tone - which was measured against the LIST background -
+        /// stops being readable on top of it. On a light skin the amber badge all but vanished.
+        /// </param>
+        internal static void DrawBadge(Rect rect, BadgeKind kind, string tooltip, bool onSelection = false)
         {
             if (kind == BadgeKind.None)
             {
@@ -280,12 +285,17 @@ namespace ImplicitSave.Editor
             }
 
             var previous = GUI.color;
-            GUI.color = new Color(tint.r, tint.g, tint.b, 0.22f);
+
+            // On the selection bar the pill carries the colour instead of the text: a solid tint
+            // behind near-white letters reads on any selection colour, on either skin.
+            GUI.color = onSelection
+                ? new Color(tint.r, tint.g, tint.b, 0.92f)
+                : new Color(tint.r, tint.g, tint.b, 0.22f);
             GUI.Label(rect, GUIContent.none, Badge);
             GUI.color = previous;
 
             var textStyle = new GUIStyle(Badge) { normal = { background = null } };
-            textStyle.normal.textColor = TextFor(kind);
+            textStyle.normal.textColor = onSelection ? new Color(1f, 1f, 1f, 0.96f) : TextFor(kind);
 
             GUI.Label(rect, new GUIContent(text, tooltip), textStyle);
         }

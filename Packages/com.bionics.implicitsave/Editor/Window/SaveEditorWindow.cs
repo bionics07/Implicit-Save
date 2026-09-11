@@ -745,7 +745,7 @@ namespace ImplicitSave.Editor
             if (kind != BadgeKind.None)
             {
                 var badgeRect = new Rect(rect.xMax - badgeWidth - 7f, rect.y + 3f, badgeWidth, 16f);
-                SaveEditorStyles.DrawBadge(badgeRect, kind, BadgeTooltip(entry));
+                SaveEditorStyles.DrawBadge(badgeRect, kind, BadgeTooltip(entry), selected);
             }
 
             if (Event.current.type == EventType.MouseDown && rect.Contains(Event.current.mousePosition))
