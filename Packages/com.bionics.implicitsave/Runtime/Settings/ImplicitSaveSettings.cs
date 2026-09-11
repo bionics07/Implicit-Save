@@ -29,47 +29,62 @@ namespace ImplicitSave
     /// below, which are the ones most games want anyway.
     /// </summary>
     /// <remarks>
-    /// Lives at <c>Assets/Resources/ImplicitSaveSettings.asset</c> when it exists. Create it with
-    /// <c>Tools &gt; ImplicitSave &gt; Create Settings Asset</c>.
+    /// Edited under <c>Edit &gt; Project Settings &gt; ImplicitSave</c>, which also creates the asset
+    /// when you ask it to. The asset lives at <c>Assets/Resources/ImplicitSaveSettings.asset</c>; any
+    /// asset named <c>ImplicitSaveSettings</c> inside a <c>Resources</c> folder is the one read.
     /// </remarks>
     public class ImplicitSaveSettings : ScriptableObject
     {
         /// <summary>Name of the asset, and the Resources path it is loaded from.</summary>
         public const string AssetName = "ImplicitSaveSettings";
 
+        /// <summary>Seconds between autosave ticks. A tick that finds no changes writes nothing.</summary>
         [Header("Autosave")]
         [Tooltip("Seconds between autosave ticks. A tick that finds no changes writes nothing.")]
         public float AutoSaveIntervalSeconds = 30f;
 
+        /// <summary>Whether the periodic tick runs at all. The application hooks run either way.</summary>
         [Tooltip("Turn the periodic tick off entirely. The application hooks below still run.")]
         public bool AutoSaveEnabled = true;
 
+        /// <summary>Write when the app is paused. The hook that matters on mobile.</summary>
         [Header("Application hooks")]
         [Tooltip("Write when the app is paused. This is the one that matters on mobile.")]
         public bool SaveOnPause = true;
 
+        /// <summary>Write when the app loses focus. Covers alt-tab on desktop.</summary>
         [Tooltip("Write when the app loses focus. Covers alt-tab on desktop.")]
         public bool SaveOnFocusLost = true;
 
+        /// <summary>Write on quit. Not reliable on mobile, which is why the other two hooks exist.</summary>
         [Tooltip("Write on quit. Not reliable on mobile, which is why the other two exist.")]
         public bool SaveOnQuit = true;
 
+        /// <summary>How the package decides a save changed. See <see cref="ImplicitSave.DirtyStrategy"/>.</summary>
         [Header("Behaviour")]
         [Tooltip("How the package decides a save changed. HashDiff is correct by construction.")]
         public DirtyStrategy DirtyStrategy = DirtyStrategy.HashDiff;
 
+        /// <summary>Indent the JSON. Readable save files are worth more than the bytes they cost.</summary>
         [Tooltip("Indent the JSON. Readable save files are worth more than the bytes they cost.")]
         public bool PrettyPrint = true;
 
+        /// <summary>Keep the previous version of each file as <c>.bak</c>, for recovery.</summary>
         [Tooltip("Keep the previous version of each file as .bak, for recovery.")]
         public bool KeepBackups = true;
 
+        /// <summary>Folder under <see cref="Application.persistentDataPath"/> where saves live.</summary>
         [Tooltip("Folder under the persistent data path where saves live.")]
         public string SaveFolderName = "saves";
 
+        /// <summary>Log every load and write. Warnings and errors are logged regardless.</summary>
         [Tooltip("Log every load and write. Off by default so the package stays quiet.")]
         public bool VerboseLogging;
 
+        /// <summary>
+        /// Fail the whole load when a save holds a subtype this build no longer has. Off by default:
+        /// the value is dropped and logged, and the rest of the save survives.
+        /// </summary>
         [Tooltip("Fail the whole load when a save holds a subtype this build no longer has. " +
                  "Off by default: the value is dropped and logged, and the rest of the save survives.")]
         public bool FailOnUnknownSubtype;
@@ -114,6 +129,16 @@ namespace ImplicitSave
         {
             _instance = settings;
             ImplicitSaveLog.VerboseLogging = settings != null && settings.VerboseLogging;
+        }
+
+        /// <summary>
+        /// Drops the cached settings so the next <see cref="Instance"/> looks for the asset again. The
+        /// editor calls this after creating the asset - otherwise the defaults picked up before it
+        /// existed would stay in use until the next domain reload.
+        /// </summary>
+        internal static void ForgetInstance()
+        {
+            _instance = null;
         }
     }
 }

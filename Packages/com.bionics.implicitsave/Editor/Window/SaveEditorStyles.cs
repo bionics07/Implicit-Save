@@ -249,6 +249,9 @@ namespace ImplicitSave.Editor
         /// <summary>
         /// Draws a badge. A word carries its meaning without anyone learning a glyph first.
         /// </summary>
+        /// <param name="rect">Where to draw, usually the right edge of a list row.</param>
+        /// <param name="kind">Which badge. <see cref="BadgeKind.None"/> draws nothing.</param>
+        /// <param name="tooltip">Shown on hover, to say why the badge is there.</param>
         /// <param name="onSelection">
         /// Whether the badge sits on a selected row. The selection bar is a strong colour of its
         /// own, so the calibrated text tone - which was measured against the LIST background -
