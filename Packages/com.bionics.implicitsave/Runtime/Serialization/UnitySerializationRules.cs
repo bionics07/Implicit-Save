@@ -112,6 +112,16 @@ namespace ImplicitSave.Serialization
                 return false;
             }
 
+            // A Dictionary is the one type where being public is not enough: Unity 6.6 serializes it
+            // only when the field carries [SerializeField]. Mirroring that exactly is what keeps the
+            // window and the file from disagreeing.
+            if (NativeDictionaries && IsPlainDictionary(field.FieldType) && !hasSerializeField)
+            {
+                reason = "a Dictionary is only serialized when the field has [SerializeField], " +
+                         "even when the field is public";
+                return false;
+            }
+
             // [SerializeReference] changes what the type rules allow, so it has to be read here and
             // carried down rather than checked at the leaf.
             var byReference = IsDefined(field, typeof(SerializeReference));
@@ -232,7 +242,11 @@ namespace ImplicitSave.Serialization
 
             if (IsPlainDictionary(type))
             {
-                reason = "Unity does not serialize Dictionary - use SerializableDictionary instead";
+                // True on every version, for different reasons: before 6.6 Unity did not serialize a
+                // Dictionary at all, and from 6.6 it does but refuses [SerializeReference] on one.
+                reason = NativeDictionaries
+                    ? "[SerializeReference] is not allowed on a Dictionary field - drop the attribute"
+                    : "Unity does not serialize Dictionary - use SerializableDictionary instead";
                 return false;
             }
 
@@ -345,8 +359,19 @@ namespace ImplicitSave.Serialization
 
             if (IsPlainDictionary(type))
             {
-                reason = "Unity does not serialize Dictionary - use SerializableDictionary instead";
-                return false;
+                if (!NativeDictionaries)
+                {
+                    reason = "Unity does not serialize Dictionary - use SerializableDictionary instead";
+                    return false;
+                }
+
+                if (!allowContainer)
+                {
+                    reason = "Unity does not serialize a Dictionary inside another collection";
+                    return false;
+                }
+
+                return IsSaveableDictionary(type, out reason);
             }
 
             if (type.IsInterface)
@@ -381,12 +406,61 @@ namespace ImplicitSave.Serialization
             return false;
         }
 
-        /// <summary>Whether this is a plain <c>Dictionary</c>, the one hole this package fills.</summary>
+        /// <summary>Whether this is a plain <c>Dictionary</c>.</summary>
         public static bool IsPlainDictionary(Type type)
         {
             return type != null
                    && type.IsGenericType
                    && type.GetGenericTypeDefinition() == typeof(Dictionary<,>);
+        }
+
+        /// <summary>
+        /// Whether this editor serializes a plain <c>Dictionary</c> field. Unity 6.6 added it; before
+        /// that, <c>SerializableDictionary&lt;K,V&gt;</c> is the only way.
+        /// </summary>
+        /// <remarks>
+        /// This package follows Unity's serializer and nothing else, so the answer has to move with
+        /// the editor. Getting it wrong in either direction is the same silent bug: a field the
+        /// window shows and the file does not have.
+        /// </remarks>
+        // static readonly, not const: a const would fold at compile time and turn the other branch
+        // into unreachable code, which is a warning in a package that ships with none.
+#if UNITY_6000_6_OR_NEWER
+        public static readonly bool NativeDictionaries = true;
+#else
+        public static readonly bool NativeDictionaries = false;
+#endif
+
+        /// <summary>
+        /// Whether a <c>Dictionary</c> can also reach a save file, and if not, why.
+        /// </summary>
+        /// <remarks>
+        /// Unity 6.6 accepts more key types than a save file can: it will happily serialize a
+        /// <c>Dictionary&lt;Vector3, int&gt;</c> into a scene, but JSON has no way to write a vector
+        /// as an object key. Refusing it here, with the reason, beats writing a file that cannot be
+        /// read back.
+        /// </remarks>
+        public static bool IsSaveableDictionary(Type type, out string reason)
+        {
+            reason = null;
+
+            if (!IsPlainDictionary(type))
+            {
+                reason = $"'{type?.Name}' is not a Dictionary";
+                return false;
+            }
+
+            var arguments = type.GetGenericArguments();
+            var key = arguments[0];
+
+            if (key != typeof(string) && key != typeof(int) && !key.IsEnum)
+            {
+                reason = $"a save file is JSON, where every key is text, so '{key.Name}' cannot be a " +
+                         "dictionary key here - use string, int or an enum";
+                return false;
+            }
+
+            return IsSerializableType(arguments[1], allowContainer: true, byReference: false, reason: out reason);
         }
 
         /// <summary>

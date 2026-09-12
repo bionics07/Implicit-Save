@@ -49,6 +49,10 @@ namespace ImplicitSave.Tests.EditorTests
             // to reject all of them and a save silently lost its positions and colours - the exact
             // divergence this test exists to catch.
             yield return typeof(BuiltInStructsSaveData);
+
+            // Plain dictionaries: none of these are serialized before Unity 6.6 and all but one are
+            // from 6.6 on. Either way the two sides have to agree, which is what this asserts.
+            yield return typeof(NativeDictionarySaveData);
         }
 
         [Test]
