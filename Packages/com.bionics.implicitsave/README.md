@@ -40,6 +40,7 @@ Play on: Basic Usage (with the demo scene), Multi Profile, Polymorphism and Migr
 
 | Symptom | Fix |
 |---|---|
+| A `Dictionary` field is not saved | Before Unity 6.6 Unity serializes no dictionary: use `SerializableDictionary<K,V>`. On 6.6+ the field also needs `[SerializeField]`, even when it is public. |
 | `The type 'JsonConvert' exists in both ...` | Json.NET is in the project twice. Keep `com.unity.nuget.newtonsoft-json` and remove the loose DLL - this package never ships one. |
 | `The type or namespace name 'Newtonsoft' could not be found` | Install `com.unity.nuget.newtonsoft-json` from the Package Manager. |
 | A save type is missing from a build but fine in the editor | `Tools > ImplicitSave > Regenerate Registry`, then build again. A build cannot scan the project. |

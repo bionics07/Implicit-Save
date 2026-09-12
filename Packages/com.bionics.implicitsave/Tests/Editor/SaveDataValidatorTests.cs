@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using ImplicitSave.Editor;
+using ImplicitSave.Serialization;
 using ImplicitSave.Tests;
 using NUnit.Framework;
 
@@ -37,7 +38,13 @@ namespace ImplicitSave.Tests.EditorTests
 
             Assert.That(issue, Is.Not.Null);
             Assert.That(issue.Value.Severity, Is.EqualTo(ValidationSeverity.Error));
-            Assert.That(issue.Value.Message, Does.Contain("SerializableDictionary"));
+
+            // The fixture's field is a public Dictionary with no [SerializeField], which is lost on
+            // every version - but for different reasons, so the fix named has to differ too.
+            Assert.That(issue.Value.Message,
+                UnitySerializationRules.NativeDictionaries
+                    ? Does.Contain("[SerializeField]")
+                    : Does.Contain("SerializableDictionary"));
         }
 
         [Test]

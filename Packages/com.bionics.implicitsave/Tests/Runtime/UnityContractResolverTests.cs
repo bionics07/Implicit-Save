@@ -129,7 +129,13 @@ namespace ImplicitSave.Tests
             var field = typeof(PlainDictionarySaveData).GetField("Broken");
 
             Assert.That(UnitySerializationRules.IsSerializedByUnity(field, out var reason), Is.False);
-            Assert.That(reason, Does.Contain("SerializableDictionary"),
+
+            // A public Dictionary without [SerializeField] never reaches the file, on any version.
+            // Before Unity 6.6 the fix is SerializableDictionary; from 6.6 on it is the attribute.
+            Assert.That(reason,
+                UnitySerializationRules.NativeDictionaries
+                    ? Does.Contain("[SerializeField]")
+                    : Does.Contain("SerializableDictionary"),
                 "The message has to name the fix, not just the problem.");
         }
 

@@ -40,6 +40,10 @@ jobs:
             testFramework: '1.1.33'
           - unityVersion: 6000.0.67f1
             testFramework: '1.6.0'
+          # 6.6 is where Unity started serializing Dictionary natively, and the package follows the
+          # editor it runs in - so this line is what proves both halves of that rule.
+          - unityVersion: 6000.6.0f1
+            testFramework: '1.8.0'
 
     steps:
       - uses: actions/checkout@v7

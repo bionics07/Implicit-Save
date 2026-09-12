@@ -27,8 +27,10 @@ No `AddComponent`, no dragging references, no central file to edit.
 
 1. **Zero-config discovery** — you never register a save type. Discovery happens through `TypeCache` in
    the editor and a generated registry in builds, so it survives IL2CPP stripping.
-2. **An editor that actually handles `Dictionary`** — Unity's native Inspector does not draw
-   dictionaries. ImplicitSave ships `SerializableDictionary<K,V>` and a drawer for it.
+2. **Dictionaries that survive, on every version you support** — `SerializableDictionary<K,V>` and
+   its drawer work from Unity 2021.3 on. Unity 6.6 added native `Dictionary` serialization, and
+   ImplicitSave saves those fields too when it runs on 6.6+ - it follows the editor's own rules
+   rather than a hard-coded list.
 3. **First-class schema migration** — versioned save envelopes and a migration pipeline, for the pain
    that only shows up on your first patch in production.
 4. **Polymorphism that survives class renames** — subtypes are persisted through a stable registry
@@ -36,8 +38,8 @@ No `AddComponent`, no dragging references, no central file to edit.
 
 ## Requirements
 
-- Unity 2021.3 or newer — the full test suite runs on every push against 2021.3 LTS, 2022.3 LTS and
-  Unity 6.0 LTS
+- Unity 2021.3 or newer — the full test suite runs on every push against 2021.3 LTS, 2022.3 LTS,
+  Unity 6.0 LTS and Unity 6.6
 - [`com.unity.nuget.newtonsoft-json`](https://docs.unity3d.com/Packages/com.unity.nuget.newtonsoft-json@3.2/manual/index.html) 3.2.2 (resolved automatically as a package dependency)
 
 ## Installation
@@ -75,7 +77,7 @@ from inside the editor.
 | A save type works in the editor but is missing from a build | A build cannot scan the project, so it reads a generated registry that is out of date | `Tools > ImplicitSave > Regenerate Registry`, then build again. `Tools > ImplicitSave > Save Types` shows what was found and what a build would miss. |
 | `SaveRegistry.g.cs` does not compile after a save class was deleted | The generated file still names the class that is gone | It repairs itself on the next compile. If it does not, delete `Assets/ImplicitSave.Generated` and regenerate. |
 | A polymorphic value comes back `null`, with an error naming an id | The `[SaveType]` id changed, or that class was deleted | Add `PreviousIds = new[] { "old_id" }` to the `[SaveType]` on the class it became. Otherwise the value is dropped on purpose and the rest of the save still loads. |
-| A field shows up in the editor but never reaches the file | The field is not something Unity serializes: a `Dictionary`, a class without `[Serializable]`, or a property | Use `SerializableDictionary<K,V>`, add `[Serializable]`, or make it a field. `Tools > ImplicitSave > Validate Save Types` lists every case in the project. |
+| A field shows up in the editor but never reaches the file | The field is not something Unity serializes: a class without `[Serializable]`, a property, or a `Dictionary` before Unity 6.6 | Use `SerializableDictionary<K,V>`, add `[Serializable]`, or make it a field. `Tools > ImplicitSave > Validate Save Types` lists every case in the project. |
 | A save refuses to be written, and `Failed` reports a future version | The file was written by a newer build of the game | Intentional. The newer file is never overwritten, so that progress survives a downgrade - check `IsReadOnly` before letting the player carry on. |
 | Files stay behind after renaming a save class | The file is named after the save id, so the old name keeps its file | The Save Editor lists them under "no class for these", with a Delete on each row |
 | Autosave never writes anything | The interval is zero or autosave is off | **Project Settings > ImplicitSave**. A tick that finds no change writes nothing, which is by design. |

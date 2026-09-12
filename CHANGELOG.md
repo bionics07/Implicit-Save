@@ -11,6 +11,10 @@ Pre-1.0 development. Nothing released yet; this is what 1.0 will ship with.
 
 ### Added
 
+- Plain `Dictionary<K,V>` fields are saved when running on Unity 6.6 or newer, where Unity itself
+  serializes them. Keys must be `string`, `int` or an enum, since a save file is JSON, and the field
+  needs `[SerializeField]` - the rule Unity applies. `SerializableDictionary<K,V>` keeps working on
+  every supported version and is still the portable choice.
 - Zero-config discovery: a class deriving from `SaveData` is found and given a file with no registration.
   `TypeCache` in the editor, a generated registry in builds, so it survives IL2CPP managed stripping.
 - `SaveManager` facade: read, write, autosave, flush on pause, focus loss and quit.
