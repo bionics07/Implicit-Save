@@ -5,7 +5,7 @@
   "description": "Zero-config save system for Unity. Declaring a class is enough - no central ScriptableObject, no manual registration, no references to maintain.",
   "unity": "2021.3",
   "author": {
-    "name": "Luiz Felipe",
+    "name": "Bionics",
     "url": "https://github.com/bionics07"
   },
   "documentationUrl": "https://github.com/bionics07/Implicit-Save",

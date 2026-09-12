@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Troubleshooting
+    url: https://github.com/bionics07/Implicit-Save#troubleshooting
+    about: Newtonsoft conflicts, a save type missing from a build, fields that never reach the file.

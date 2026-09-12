@@ -1,0 +1,20 @@
+name: Feature request
+description: Something ImplicitSave should do and does not.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to build, and where the package gets in the way. Problems age better than solutions.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+      description: Optional. An API sketch is welcome if you have one.
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you do today instead

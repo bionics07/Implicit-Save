@@ -50,6 +50,38 @@ UPM git dependency.
 End-user documentation ships with the 1.0 release. Until then, the API surface is described in the
 XML docs on the public types.
 
+## Samples
+
+Import them from the Package Manager: pick ImplicitSave, open **Samples**, press **Import**. Each one is
+a scene to press Play on.
+
+| Sample | What it shows |
+|---|---|
+| **Basic Usage** | One save class changed from buttons, written by autosave, and still there on the next Play. Includes the demo scene. |
+| **Multi Profile** | Save slots: create, switch, copy, rename and delete, with the same save class stored once per slot. |
+| **Polymorphism** | A list declared as a base type holding mixed subtypes, and the file that comes out of it. |
+| **Migration** | Files written by older versions of a class, loaded through migration steps - and what happens with a file from a newer build. |
+
+## Troubleshooting
+
+Saves live in `<persistentDataPath>/<save folder>/<profile id>/<save id>.json`, in plain JSON. The folder
+is set in **Project Settings > ImplicitSave**, and **Tools > ImplicitSave > Save Editor** opens the files
+from inside the editor.
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `The type 'JsonConvert' exists in both ...` | Json.NET is in the project twice - usually a loose DLL shipped by another asset alongside the UPM package | Keep `com.unity.nuget.newtonsoft-json` and remove the other copy. ImplicitSave never ships a Json.NET DLL of its own. |
+| `The type or namespace name 'Newtonsoft' could not be found` | The dependency did not resolve | Install `com.unity.nuget.newtonsoft-json` from the Package Manager and let the project recompile |
+| A save type works in the editor but is missing from a build | A build cannot scan the project, so it reads a generated registry that is out of date | `Tools > ImplicitSave > Regenerate Registry`, then build again. `Tools > ImplicitSave > Save Types` shows what was found and what a build would miss. |
+| `SaveRegistry.g.cs` does not compile after a save class was deleted | The generated file still names the class that is gone | It repairs itself on the next compile. If it does not, delete `Assets/ImplicitSave.Generated` and regenerate. |
+| A polymorphic value comes back `null`, with an error naming an id | The `[SaveType]` id changed, or that class was deleted | Add `PreviousIds = new[] { "old_id" }` to the `[SaveType]` on the class it became. Otherwise the value is dropped on purpose and the rest of the save still loads. |
+| A field shows up in the editor but never reaches the file | The field is not something Unity serializes: a `Dictionary`, a class without `[Serializable]`, or a property | Use `SerializableDictionary<K,V>`, add `[Serializable]`, or make it a field. `Tools > ImplicitSave > Validate Save Types` lists every case in the project. |
+| A save refuses to be written, and `Failed` reports a future version | The file was written by a newer build of the game | Intentional. The newer file is never overwritten, so that progress survives a downgrade - check `IsReadOnly` before letting the player carry on. |
+| Files stay behind after renaming a save class | The file is named after the save id, so the old name keeps its file | The Save Editor lists them under "no class for these", with a Delete on each row |
+| Autosave never writes anything | The interval is zero or autosave is off | **Project Settings > ImplicitSave**. A tick that finds no change writes nothing, which is by design. |
+
+Anything else, or any of these that does not match what you see: open an issue.
+
 ## Repository layout
 
 This repository is the **Unity development project**. The distributable package is the embedded

@@ -1,0 +1,25 @@
+name: Question
+description: How do I do X with ImplicitSave?
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Support happens here rather than by email, so the answer stays searchable for the next person.
+  - type: textarea
+    id: question
+    attributes:
+      label: What are you trying to do
+      description: The goal, not only the step you are stuck on - there is often a simpler way in.
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you tried
+      description: Code, settings, or the part of the documentation that did not answer it.
+  - type: input
+    id: unity-version
+    attributes:
+      label: Unity version
+      placeholder: "6000.0.67f1"
