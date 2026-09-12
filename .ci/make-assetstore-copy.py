@@ -30,14 +30,17 @@ PACKAGE = os.path.join("Packages", "com.bionics.implicitsave")
 NEWTONSOFT = "3.2.2"
 
 # Os modulos que qualquer projeto real tem. Sem eles o projeto de upload nao compila os samples:
-# GUIStyle vive no modulo de IMGUI, e um manifest so com o Newtonsoft nao o inclui. O projeto do
-# comprador tem tudo isso; aqui e so para a copia ser validada num ambiente parecido com o dele.
+# GUIStyle vive no modulo de IMGUI, e um manifest so com o Newtonsoft nao o inclui.
+#
+# A lista so tem modulos que existem em TODAS as versoes suportadas. com.unity.modules.vr ficou de
+# fora porque a Unity 6.6 o removeu, e um modulo inexistente derruba a resolucao de pacotes antes de
+# o editor abrir - foi assim que a CI quebrou ao ganhar a 6.6 na matriz.
 MODULES = [
     "ai", "androidjni", "animation", "assetbundle", "audio", "cloth", "director", "imageconversion",
     "imgui", "jsonserialize", "particlesystem", "physics", "physics2d", "screencapture", "terrain",
     "terrainphysics", "tilemap", "ui", "uielements", "umbra", "unityanalytics", "unitywebrequest",
     "unitywebrequestassetbundle", "unitywebrequestaudio", "unitywebrequesttexture",
-    "unitywebrequestwww", "vehicles", "video", "vr", "wind", "xr",
+    "unitywebrequestwww", "vehicles", "video", "wind", "xr",
 ]
 
 # GUID fixo para as duas pastas que so existem na copia. Deixar a Unity gerar faria o GUID mudar a
@@ -155,6 +158,15 @@ def ensure_project(dest, editor):
     manifest.setdefault("dependencies", {}).setdefault("com.unity.nuget.newtonsoft-json", NEWTONSOFT)
     for module in MODULES:
         manifest["dependencies"].setdefault("com.unity.modules." + module, "1.0.0")
+
+    # O projeto e gerado por este script, entao a lista acima manda: um modulo que saiu dela (porque
+    # alguma versao da Unity o removeu) tem que sair do manifest tambem, senao um projeto antigo
+    # continuaria quebrando na versao nova.
+    wanted = {"com.unity.modules." + module for module in MODULES}
+    for name in [k for k in manifest["dependencies"] if k.startswith("com.unity.modules.")]:
+        if name not in wanted:
+            manifest["dependencies"].pop(name)
+            print("  removido do manifest do projeto de upload: " + name)
     with open(manifest_path, "w", encoding="utf-8", newline="\n") as handle:
         json.dump(manifest, handle, indent=2)
         handle.write("\n")
