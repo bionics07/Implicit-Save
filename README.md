@@ -65,6 +65,11 @@ Dual-licensed by distribution channel:
 
 Same code, same feature set, different license terms depending on where you got it.
 
+## Donations
+
+ImplicitSave is free, on every channel, with the same features everywhere. If it saves you time, donations
+are accepted on [Ko-fi](https://ko-fi.com/bionics07) — they are what keeps the project maintained.
+
 ## Support
 
 Support happens exclusively through [GitHub Issues](https://github.com/bionics07/Implicit-Save/issues).

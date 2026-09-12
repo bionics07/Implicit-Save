@@ -9,3 +9,4 @@ obj/
 *.sln
 *.meta
 Assets/ImplicitSave.Generated/
+Assets/Samples/

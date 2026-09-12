@@ -62,6 +62,13 @@ jobs:
               json.dump(manifest, f, indent=2)
           PY
 
+      # Samples live in Samples~, a folder Unity never compiles on its own, so nothing else would
+      # notice a sample that stopped compiling. Copying them into the host is what checks them.
+      - name: Import the package samples into the host
+        run: |
+          mkdir -p .ci/compat-host/Assets/Samples
+          cp -R "Packages/com.bionics.implicitsave/Samples~/." .ci/compat-host/Assets/Samples/
+
       - uses: actions/cache@v6
         with:
           path: .ci/compat-host/Library
