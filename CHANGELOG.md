@@ -5,9 +5,9 @@ All notable changes to this package are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-09-12
 
-Pre-1.0 development. Nothing released yet; this is what 1.0 will ship with.
+First release.
 
 ### Added
 
@@ -32,4 +32,4 @@ Pre-1.0 development. Nothing released yet; this is what 1.0 will ship with.
 - Project Settings page under **ImplicitSave**, and an optional settings asset created from it.
 - Four samples: Basic Usage (with the demo scene), Multi Profile, Polymorphism and Migration.
 
-[Unreleased]: https://github.com/bionics07/Implicit-Save
+[1.0.0]: https://github.com/bionics07/Implicit-Save/releases/tag/v1.0.0

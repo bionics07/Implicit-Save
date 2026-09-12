@@ -21,7 +21,7 @@ items.Inventory["potion"] = 5;
 
 No `AddComponent`, no dragging references, no central file to edit.
 
-> ⚠️ **Status: pre-1.0, under active development.** Nothing is released yet and the API is not stable.
+> **Status: 1.0.** The public API is stable, and breaking changes wait for a major version.
 
 ## What makes it different
 
@@ -44,8 +44,17 @@ No `AddComponent`, no dragging references, no central file to edit.
 
 ## Installation
 
-Not published yet. Once released it will be available through the Unity Asset Store, OpenUPM, and as a
-UPM git dependency.
+**From this repository (works today).** In Unity, `Window > Package Manager`, then `+` >
+*Add package from git URL*:
+
+```
+https://github.com/bionics07/Implicit-Save.git?path=/Packages/com.bionics.implicitsave
+```
+
+That tracks `main`. To pin a released version once tags exist, add `#v1.0.0` to the end. Json.NET is
+declared as a dependency and resolves on its own through the Package Manager.
+
+**Asset Store and OpenUPM:** not published yet. Both arrive with 1.0.
 
 ## Documentation
 

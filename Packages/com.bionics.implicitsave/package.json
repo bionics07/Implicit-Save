@@ -1,6 +1,6 @@
 {
   "name": "com.bionics.implicitsave",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "displayName": "ImplicitSave",
   "description": "Zero-config save system for Unity. Declaring a class is enough - no central ScriptableObject, no manual registration, no references to maintain.",
   "unity": "2021.3",

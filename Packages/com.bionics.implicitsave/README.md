@@ -15,7 +15,7 @@ var items = SaveManager.Get<ItemsSaveData>();
 items.Inventory["potion"] = 5;
 ```
 
-> Status: pre-1.0, under active development. The API is not stable yet.
+> Status: 1.0. The public API is stable, and breaking changes wait for a major version.
 
 ## Requirements
 
